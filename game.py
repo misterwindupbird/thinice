@@ -4,6 +4,10 @@ import random
 import os
 import tkinter as tk
 import time
+from watchdog.observers import Observer
+from watchdog.events import FileSystemEventHandler
+import sys
+import subprocess
 
 # Use tkinter to get screen info
 root = tk.Tk()
@@ -21,7 +25,7 @@ HEX_RADIUS = 40
 GRID_WIDTH = 10
 GRID_HEIGHT = 10
 
-# Position window on left monitor
+# Position window on left monitor 
 os.environ['SDL_VIDEO_WINDOW_POS'] = f"{left_monitor_x + 1500},100"
 
 # Calculate hex dimensions
@@ -40,8 +44,20 @@ BACKGROUND = (20, 20, 30)
 LINE_COLOR = (30, 30, 45)  # Just slightly lighter than background
 TEXT_COLOR = (255, 255, 255)
 
+class GameRestartHandler(FileSystemEventHandler):
+    def on_modified(self, event):
+        if event.src_path.endswith('game.py'):
+            print("Game file changed, restarting...")
+            python = sys.executable
+            os.execl(python, python, *sys.argv)
+
 class Game:
     def __init__(self):
+        # Set up file watcher
+        self.observer = Observer()
+        self.observer.schedule(GameRestartHandler(), path='.', recursive=False)
+        self.observer.start()
+
         # Try to force the window to open on the left monitor
         pygame.display.set_mode((1,1))  # Create dummy window
         pygame.display.quit()
@@ -144,28 +160,36 @@ class Game:
                 self.screen.blit(text, text_rect)
     
     def run(self):
-        running = True
-        while running:
-            for event in pygame.event.get():
-                if event.type == pygame.QUIT:
-                    running = False
-                elif event.type == pygame.MOUSEBUTTONDOWN:
-                    if event.button == 1:  # Left click
-                        mouse_pos = pygame.mouse.get_pos()
-                        hex_pos = self.pixel_to_hex(*mouse_pos)
-                        if hex_pos:
-                            x, y = hex_pos
-                            self.hex_counts[x][y] += 1
-                elif event.type == pygame.KEYDOWN:
-                    if event.key == pygame.K_ESCAPE:
+        try:
+            running = True
+            while running:
+                for event in pygame.event.get():
+                    if event.type == pygame.QUIT:
                         running = False
-            
-            # Draw
-            self.screen.fill(BACKGROUND)
-            self.draw_hex_grid()
-            pygame.display.flip()
+                    elif event.type == pygame.MOUSEBUTTONDOWN:
+                        if event.button == 1:  # Left click
+                            mouse_pos = pygame.mouse.get_pos()
+                            hex_pos = self.pixel_to_hex(*mouse_pos)
+                            if hex_pos:
+                                x, y = hex_pos
+                                self.hex_counts[x][y] += 1
+                    elif event.type == pygame.KEYDOWN:
+                        if event.key == pygame.K_ESCAPE:
+                            running = False
+                        elif event.key == pygame.K_r and pygame.key.get_mods() & pygame.KMOD_CTRL:
+                            # Restart on Ctrl+R
+                            python = sys.executable
+                            os.execl(python, python, *sys.argv)
+                
+                # Draw
+                self.screen.fill(BACKGROUND)
+                self.draw_hex_grid()
+                pygame.display.flip()
+        finally:
+            self.observer.stop()
+            self.observer.join()
+            pygame.quit()
 
 if __name__ == '__main__':
     game = Game()
-    game.run()
-    pygame.quit() 
+    game.run() 
