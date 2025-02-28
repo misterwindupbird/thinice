@@ -1,14 +1,14 @@
+from typing import List
+
 import pygame
 import math
 import random
 import os
 import tkinter as tk
-import time
+import numpy as np
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 import sys
-import subprocess
-from random import randint
 from enum import Enum, auto
 
 # Use tkinter to get screen info
@@ -81,45 +81,19 @@ class Hex:
         self.grid_x = grid_x
         self.grid_y = grid_y
         self.center = (x, y)
-        self.points = self.calculate_points()  # Vertices
-        self.edge_points = self.calculate_edge_points()  # Edge centers
+
+        # Ordered for a flat-top hex
+        self.vertices = [(self.center[0] + HEX_RADIUS * np.cos(a), self.center[1] - HEX_RADIUS * np.sin(a))
+                         for a in np.radians([120, 60, 0, 300, 240, 180])]
+        # Compute edge centers by averaging adjacent vertices
+        self.edge_points = [((self.vertices[i][0] + self.vertices[(i + 1) % 6][0]) / 2,
+                             (self.vertices[i][1] + self.vertices[(i + 1) % 6][1]) / 2)
+                            for i in range(6)]
+
         self.state = HexState.SOLID
-        self.color = self.random_blue()
+        self.color = (0, 0, random.randint(100, 255))
         self.cracks = []
 
-    def calculate_points(self):
-        points = []
-        for i in range(6):
-            angle = i * math.pi / 3
-            x = self.center[0] + HEX_RADIUS * math.cos(angle)
-            y = self.center[1] + HEX_RADIUS * math.sin(angle)
-            points.append((int(x), int(y)))
-        return points
-    
-    def calculate_edge_points(self):
-        """Calculate the center point of each edge"""
-        edge_points = []
-        # Start from top (0) and go clockwise
-        angles = [
-            (-math.pi/2),        # top (0)
-            (-math.pi/6),        # top right (1)
-            (math.pi/6),         # bottom right (2)
-            (math.pi/2),         # bottom (3)
-            (5*math.pi/6),       # bottom left (4)
-            (7*math.pi/6)        # top left (5)
-        ]
-        
-        for angle in angles:
-            x = self.center[0] + HEX_RADIUS * math.cos(angle)
-            y = self.center[1] + HEX_RADIUS * math.sin(angle)
-            edge_points.append((x, y))
-            
-        return edge_points
-    
-    def random_blue(self):
-        """Generate a random shade of blue"""
-        return (0, 0, random.randint(100, 255))
-    
     def pixel_to_hex(self, px, py):
         """Convert pixel coordinates to hex grid coordinates"""
         # Offset coordinates from grid start position
@@ -177,45 +151,6 @@ class Hex:
                 neighbors.append((nx, ny))
         return neighbors
 
-    def get_edge_point(self, edge_index):
-        """Get the exact coordinates of an edge point"""
-        angle = edge_index * math.pi / 3
-        point_x = self.center[0] + HEX_RADIUS * math.cos(angle)
-        point_y = self.center[1] + HEX_RADIUS * math.sin(angle)
-        return (point_x, point_y)
-
-    def get_edge_index(self, x1, y1, x2, y2):
-        """Get the index of the edge point that connects two hexes"""
-        dx = x2 - x1
-        dy = y2 - y1
-        odd_row = x1 % 2
-        
-        # Map neighbor direction to edge index (clockwise from top)
-        if odd_row:
-            direction_to_edge = {
-                (0,-1): 0,   # top
-                (1,0): 1,    # top right
-                (1,1): 2,    # bottom right
-                (0,1): 3,    # bottom
-                (-1,1): 4,   # bottom left
-                (-1,0): 5    # top left
-            }
-        else:
-            direction_to_edge = {
-                (0,-1): 0,   # top
-                (1,-1): 1,   # top right
-                (1,0): 2,    # bottom right
-                (0,1): 3,    # bottom
-                (-1,0): 4,   # bottom left
-                (-1,-1): 5   # top left
-            }
-        
-        # Print debug info
-        print(f"Getting edge from ({x1},{y1}) to ({x2},{y2})")
-        print(f"  dx={dx}, dy={dy}, odd_row={odd_row}")
-        print(f"  edge_index={direction_to_edge.get((dx, dy), 0)}")
-        
-        return direction_to_edge.get((dx, dy), 0)
 
     def draw(self, screen, font):
         # Draw hex
@@ -223,7 +158,7 @@ class Hex:
             color = BACKGROUND
         else:
             color = self.color
-        pygame.draw.polygon(screen, color, self.points)
+        pygame.draw.polygon(screen, color, self.vertices)
         
         # Draw cracks
         if self.state == HexState.CRACKED:
@@ -232,7 +167,7 @@ class Hex:
         
         # Draw outline and coordinates for unbroken hexes
         if self.state != HexState.BROKEN:
-            pygame.draw.polygon(screen, LINE_COLOR, self.points, 1)
+            pygame.draw.polygon(screen, LINE_COLOR, self.vertices, 1)
             text = font.render(f"({self.grid_x},{self.grid_y})", True, TEXT_COLOR)
             text_rect = text.get_rect(center=self.center)
             screen.blit(text, text_rect)
@@ -262,11 +197,11 @@ class Hex:
                 neighbor.add_straight_crack(neighbor.edge_points[neighbor_edge_index])
             
             # Add our connecting crack to the same point
-            print(f"    Adding our crack to shared edge")
+            print(f"    Adding our crack to shared  {edge_index}")
             self.add_straight_crack(shared_point)
-        
-        # Then add random cracks until we have at least 3
-        while len(self.cracks) < 3:
+
+        min_cracks = np.random.randint(1, 4)
+        while len(self.cracks) < min_cracks:
             # Pick an edge we haven't used yet
             used_edges = {crack.points[-1] for crack in self.cracks}
             available_edges = [i for i, point in enumerate(self.edge_points) 
@@ -296,18 +231,48 @@ class Hex:
     def break_ice(self):
         if self.state == HexState.CRACKED:
             self.state = HexState.BROKEN
-    
+
     def get_shared_edge_index(self, neighbor):
         """Get the index of the edge shared with neighbor"""
-        return self.get_edge_index(self.grid_x, self.grid_y, 
-                                 neighbor.grid_x, neighbor.grid_y)
+        delta = (self.grid_x - neighbor.grid_x, self.grid_y - neighbor.grid_y)
+        if self.grid_x % 2 == 0:
+            match delta:
+                case (0, 1):
+                    return 0
+                case (-1, 1):
+                    return 1
+                case (-1, 0):
+                    return 2
+                case (0, -1):
+                    return 3
+                case (1, 0):
+                    return 4
+                case (1, 1):
+                    return 5
+
+        match delta:
+            case (0, 1):
+                return 0
+            case (-1, 0):
+                return 1
+            case (-1, -1):
+                return 2
+            case (0, -1):
+                return 3
+            case (1, -1):
+                return 4
+            case (1, 0):
+                return 5
+
 
 class Game:
-    def __init__(self):
-        # Set up file watcher
-        self.observer = Observer()
-        self.observer.schedule(GameRestartHandler(), path='.', recursive=False)
-        self.observer.start()
+    def __init__(self, enable_watcher=False):
+        # Set up file watcher only if requested
+        self.observer = None
+        if enable_watcher:
+            self.observer = Observer()
+            self.observer.schedule(GameRestartHandler(), path='.', recursive=False)
+            self.observer.start()
 
         # Set up display
         self.screen = pygame.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT))
@@ -330,7 +295,7 @@ class Game:
                 
                 self.hexes[x][y] = Hex(center_x, center_y, x, y)
     
-    def get_hex_neighbors(self, hex):
+    def get_hex_neighbors(self, hex: Hex) -> List[Hex]:
         """Get list of neighboring Hex objects"""
         neighbors = []
         odd_row = hex.grid_x % 2
@@ -346,7 +311,7 @@ class Game:
                 neighbors.append(self.hexes[nx][ny])
         return neighbors
     
-    def pixel_to_hex(self, px, py):
+    def pixel_to_hex(self, px: float, py: float) -> Hex:
         """Convert pixel coordinates to hex object"""
         # Offset coordinates from grid start position
         px -= GRID_START_X
@@ -403,7 +368,7 @@ class Game:
                                 neighbors = self.get_hex_neighbors(clicked_hex)
                                 for n in neighbors:
                                     marker = "*" if n.state == HexState.CRACKED else " "
-                                    print(f"  Neighbor ({n.grid_x},{n.grid_y}){marker}")
+                                    print(f"  Neighbor ({n.grid_x},{n.grid_y}){marker}\tedge={clicked_hex.get_shared_edge_index(n)}")
                                 
                                 if clicked_hex.state == HexState.SOLID:
                                     clicked_hex.crack(neighbors)
@@ -413,9 +378,6 @@ class Game:
                     elif event.type == pygame.KEYDOWN:
                         if event.key == pygame.K_ESCAPE:
                             running = False
-                        elif event.key == pygame.K_r and pygame.key.get_mods() & pygame.KMOD_CTRL:
-                            python = sys.executable
-                            os.execl(python, python, *sys.argv)
                 
                 # Draw
                 self.screen.fill(BACKGROUND)
@@ -425,10 +387,12 @@ class Game:
                 pygame.display.flip()
                 
         finally:
-            self.observer.stop()
-            self.observer.join()
+            if self.observer:
+                self.observer.stop()
+                self.observer.join()
             pygame.quit()
 
 if __name__ == '__main__':
-    game = Game()
+    # Create game instance with file watcher disabled by default
+    game = Game(enable_watcher=False)
     game.run() 
