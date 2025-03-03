@@ -5,7 +5,6 @@ class HexState(Enum):
     """Represents the possible states of a hex tile."""
     
     SOLID = auto()     # Uncracked ice
-    CRACKING = auto()  # Currently animating crack formation
     CRACKED = auto()   # Has cracks but not broken
     BREAKING = auto()  # Currently animating break
     BROKEN = auto()    # Completely broken

@@ -346,8 +346,7 @@ class Hex:
         if self.state != HexState.SOLID:
             return
             
-        self.state = HexState.CRACKING
-        self.cracking_start_time = pygame.time.get_ticks() / 1000.0
+        self.state = HexState.CRACKED  # Directly transition to CRACKED
         
         # Connect to cracked neighbors
         for neighbor in neighbors:
@@ -524,12 +523,6 @@ class Hex:
         text_rect = text.get_rect(center=self.center)
         screen.blit(text, text_rect)
         
-        # Check if cracking animation is complete
-        if self.state == HexState.CRACKING:
-            progress = min(1.0, (pygame.time.get_ticks() / 1000.0 - self.cracking_start_time) / 
-                         animation.CRACKING_DURATION)
-            if progress >= 1.0:
-                self.state = HexState.CRACKED
     
     def _draw_solid(self, screen: pygame.Surface, font: pygame.font.Font) -> None:
         """Draw the solid state."""
@@ -574,7 +567,7 @@ class Hex:
         """
         if self.state == HexState.BROKEN:
             self._draw_broken(screen)
-        elif self.state in (HexState.CRACKED, HexState.CRACKING):
+        elif self.state == HexState.CRACKED:
             self._draw_cracked(screen, font)
         else:  # SOLID state
             self._draw_solid(screen, font) 
