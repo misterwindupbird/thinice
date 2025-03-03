@@ -20,6 +20,7 @@ class HexConfig:
     LINE_COLOR: Tuple[int, int, int] = (240, 240, 245)
     TEXT_COLOR: Tuple[int, int, int] = (100, 120, 140)
     ICE_BASE_COLOR: Tuple[int, int, int] = (245, 245, 250)
+    MAX_FRAGMENT_SIZE_PERCENT: float = 0.20  # Maximum fragment size as percentage of hex area (15%)
 
 @dataclass
 class CrackConfig:

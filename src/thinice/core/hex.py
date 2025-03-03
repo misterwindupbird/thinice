@@ -790,11 +790,13 @@ class Hex:
             return x, y
         
         # Fill the grid with the hex shape
+        total_hex_cells = 0
         for y in range(grid_size):
             for x in range(grid_size):
                 world_x, world_y = grid_to_world(x, y)
                 if self._point_in_hex((world_x, world_y)):
                     grid[y][x] = True
+                    total_hex_cells += 1
         
         # Draw cracks on the grid (set cells to False)
         for crack in self.cracks:
@@ -850,13 +852,105 @@ class Hex:
                         hull = self._convex_hull(world_points)
                         
                         if len(hull) >= 3:  # Need at least 3 points for a polygon
-                            fragments.append(hull)
+                            fragments.append({
+                                'cells': fragment_cells,
+                                'hull': hull,
+                                'size': len(fragment_cells)
+                            })
+        
+        # Calculate the maximum size threshold using the configurable percentage
+        max_size_threshold = total_hex_cells * hex_grid.MAX_FRAGMENT_SIZE_PERCENT
+        
+        # Process large fragments and break them into smaller ones
+        final_fragments = []
+        fragments_to_process = fragments.copy()
+        
+        while fragments_to_process:
+            fragment = fragments_to_process.pop(0)
+            
+            if fragment['size'] > max_size_threshold:
+                # This fragment is too large, break it into smaller pieces
+                
+                # Create a grid representation of just this fragment
+                fragment_grid = [[False for _ in range(grid_size)] for _ in range(grid_size)]
+                for cx, cy in fragment['cells']:
+                    fragment_grid[cy][cx] = True
+                
+                # Choose a random starting point for the new crack
+                cells = fragment['cells']
+                start_idx = random.randint(0, len(cells) - 1)
+                start_cell = cells[start_idx]
+                
+                # Choose a random direction and length for the crack
+                directions = [(0, 1), (1, 0), (0, -1), (-1, 0), (1, 1), (1, -1), (-1, 1), (-1, -1)]
+                direction = random.choice(directions)
+                
+                # Create a crack of random length
+                crack_length = random.randint(grid_size // 4, grid_size // 2)
+                
+                # Draw the crack on the fragment grid
+                cx, cy = start_cell
+                for _ in range(crack_length):
+                    cx += direction[0]
+                    cy += direction[1]
+                    
+                    # Check if we're still in bounds and in the fragment
+                    if (0 <= cx < grid_size and 0 <= cy < grid_size and fragment_grid[cy][cx]):
+                        # Add some thickness to the crack
+                        for dx in range(-1, 2):
+                            for dy in range(-1, 2):
+                                nx, ny = cx + dx, cy + dy
+                                if (0 <= nx < grid_size and 0 <= ny < grid_size and fragment_grid[ny][nx]):
+                                    fragment_grid[ny][nx] = False
+                
+                # Find the new sub-fragments using flood fill
+                sub_visited = [[False for _ in range(grid_size)] for _ in range(grid_size)]
+                sub_fragments = []
+                
+                for y in range(grid_size):
+                    for x in range(grid_size):
+                        if fragment_grid[y][x] and not sub_visited[y][x]:
+                            # Start a new sub-fragment
+                            sub_fragment_cells = []
+                            queue = [(x, y)]
+                            sub_visited[y][x] = True
+                            
+                            while queue:
+                                scx, scy = queue.pop(0)
+                                sub_fragment_cells.append((scx, scy))
+                                
+                                # Check neighbors
+                                for dx, dy in [(0, 1), (1, 0), (0, -1), (-1, 0)]:
+                                    nx, ny = scx + dx, scy + dy
+                                    if (0 <= nx < grid_size and 0 <= ny < grid_size and 
+                                        fragment_grid[ny][nx] and not sub_visited[ny][nx]):
+                                        queue.append((nx, ny))
+                                        sub_visited[ny][nx] = True
+                            
+                            # Convert cells to world coordinates and create a polygon
+                            if len(sub_fragment_cells) > 5:  # Ignore very small fragments
+                                # Use convex hull to create a clean polygon
+                                sub_world_points = [grid_to_world(cx, cy) for cx, cy in sub_fragment_cells]
+                                sub_hull = self._convex_hull(sub_world_points)
+                                
+                                if len(sub_hull) >= 3:  # Need at least 3 points for a polygon
+                                    sub_fragments.append({
+                                        'cells': sub_fragment_cells,
+                                        'hull': sub_hull,
+                                        'size': len(sub_fragment_cells)
+                                    })
+                
+                # Add the sub-fragments back to the processing queue
+                fragments_to_process.extend(sub_fragments)
+            else:
+                # This fragment is small enough, keep it
+                final_fragments.append(fragment['hull'])
         
         # Store fragments and use the original hex color for all fragments
-        self.ice_fragments = fragments
+        self.ice_fragments = final_fragments
         self.fragment_colors = []
         
-        for _ in range(len(fragments)):
+        for _ in range(len(final_fragments)):
             # Use the original hex color for all fragments
             self.fragment_colors.append(self.color)
     
