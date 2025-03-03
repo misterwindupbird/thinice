@@ -84,7 +84,7 @@ class IceFragment(pygame.sprite.Sprite):
         
         Args:
             current_time: Current game time in seconds
-            non_broken_hexes: List of hexes that are not in BROKEN state
+            non_broken_hexes: List of hexes that are not in BROKEN state (for collision detection)
         """
         # Calculate time since creation
         time_since_creation = current_time - self.creation_time
@@ -98,16 +98,30 @@ class IceFragment(pygame.sprite.Sprite):
         
         # Calculate potential new position
         max_drift = 15  # Maximum drift distance
-        new_offset_x = min(max_drift, self.dx * time_since_creation)
-        new_offset_y = min(max_drift, self.dy * time_since_creation)
+        new_offset_x = min(max_drift, max(-max_drift, self.dx * time_since_creation))
+        new_offset_y = min(max_drift, max(-max_drift, self.dy * time_since_creation))
         
         # Add bobbing motion
         bob_y = math.sin(current_time * self.bob_speed + self.bob_phase) * self.bob_amount
         new_offset_y += bob_y
         
-        # Check for collisions with non-broken hexes
+        # Calculate new center position
         new_center_x = self.center[0] + new_offset_x
         new_center_y = self.center[1] + new_offset_y
+        
+        # Bounds checking - ensure fragment doesn't move too far from hex center
+        max_distance_from_hex = hex_grid.RADIUS * 1.5
+        dx_from_hex = new_center_x - self.hex_center[0]
+        dy_from_hex = new_center_y - self.hex_center[1]
+        distance_from_hex = math.sqrt(dx_from_hex**2 + dy_from_hex**2)
+        
+        if distance_from_hex > max_distance_from_hex:
+            # Scale back to maximum allowed distance
+            scale_factor = max_distance_from_hex / distance_from_hex
+            new_offset_x = (self.hex_center[0] + dx_from_hex * scale_factor) - self.center[0]
+            new_offset_y = (self.hex_center[1] + dy_from_hex * scale_factor) - self.center[1]
+            new_center_x = self.center[0] + new_offset_x
+            new_center_y = self.center[1] + new_offset_y
         
         # Only apply movement if it doesn't cause a collision
         if non_broken_hexes:
@@ -129,6 +143,14 @@ class IceFragment(pygame.sprite.Sprite):
                         # Reverse direction with a small bounce effect
                         self.dx = -self.dx + dx * 0.05
                         self.dy = -self.dy + dy * 0.05
+                        
+                        # Push the fragment away from the collision point
+                        # Calculate minimum distance needed to resolve collision
+                        push_distance = (self.radius + hex_grid.RADIUS - 5) - distance
+                        if push_distance > 0:
+                            # Move fragment away from hex by push_distance
+                            new_offset_x = self.offset_x + dx * push_distance
+                            new_offset_y = self.offset_y + dy * push_distance
                     
                     collision = True
                     break
