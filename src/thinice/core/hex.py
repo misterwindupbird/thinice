@@ -554,34 +554,13 @@ class Hex:
                         if len(hull) >= 3:  # Need at least 3 points for a polygon
                             fragments.append(hull)
         
-        # Store fragments and generate distinct colors for each
+        # Store fragments and use the original hex color for all fragments
         self.ice_fragments = fragments
         self.fragment_colors = []
         
-        # Generate distinct colors for each fragment
-        distinct_colors = [
-            (200, 230, 255),  # Light blue
-            (150, 200, 255),  # Sky blue
-            (100, 170, 255),  # Medium blue
-            (80, 140, 230),   # Blue
-            (60, 120, 200),   # Darker blue
-            (180, 220, 255),  # Very light blue
-            (120, 190, 240),  # Pale blue
-            (90, 160, 220),   # Steel blue
-            (70, 130, 210),   # Royal blue
-            (50, 110, 190)    # Navy blue
-        ]
-        
-        for i in range(len(fragments)):
-            # Use a predefined color with slight variation
-            base_color = distinct_colors[i % len(distinct_colors)]
-            
-            # Add slight variation
-            r = max(0, min(255, base_color[0] + random.randint(-15, 15)))
-            g = max(0, min(255, base_color[1] + random.randint(-15, 15)))
-            b = max(0, min(255, base_color[2] + random.randint(-15, 15)))
-            
-            self.fragment_colors.append((r, g, b))
+        for _ in range(len(fragments)):
+            # Use the original hex color for all fragments
+            self.fragment_colors.append(self.color)
     
     def _convex_hull(self, points):
         """Compute the convex hull of a set of points using Graham scan."""
@@ -626,20 +605,6 @@ class Hex:
         # Create a mask to track visited pixels
         visited = [[False for _ in range(size)] for _ in range(size)]
         
-        # Define colors for fragments
-        fragment_colors = [
-            (200, 230, 255),  # Light blue
-            (150, 200, 255),  # Sky blue
-            (100, 170, 255),  # Medium blue
-            (80, 140, 230),   # Blue
-            (60, 120, 200),   # Darker blue
-            (180, 220, 255),  # Very light blue
-            (120, 190, 240),  # Pale blue
-            (90, 160, 220),   # Steel blue
-            (70, 130, 210),   # Royal blue
-            (50, 110, 190)    # Navy blue
-        ]
-        
         # Water color for comparison (to avoid coloring water)
         water_colors = [
             water.BASE_COLOR,
@@ -661,7 +626,6 @@ class Hex:
             return False
         
         # Find and color ice fragments
-        fragment_index = 0
         fragments = []  # Store fragment data for creating sprites
         
         for y in range(size):
@@ -678,8 +642,8 @@ class Hex:
                     continue
                 
                 # Found an ice fragment, flood fill and color it
-                fragment_color = fragment_colors[fragment_index % len(fragment_colors)]
-                fragment_index += 1
+                # Use the original hex color instead of fragment colors
+                fragment_color = self.color
                 
                 # Simple flood fill
                 queue = [(x, y)]
