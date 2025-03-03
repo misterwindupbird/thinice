@@ -198,15 +198,15 @@ class IceParticle:
         self.color = color
         self.alpha = 255
         # Small random movement on the surface
-        self.speed_x = random.uniform(-0.2, 0.2)  # Even slower movement
-        self.speed_y = random.uniform(-0.2, 0.2)  # Even slower movement
+        self.speed_x = random.uniform(-0.15, 0.15)  # Even slower movement
+        self.speed_y = random.uniform(-0.15, 0.15)  # Even slower movement
         # Sinking speed (z-axis represented by scaling and alpha)
-        self.sink_speed = random.uniform(0.001, 0.005)  # Even slower sinking
+        self.sink_speed = random.uniform(0.0005, 0.002)  # Even slower sinking
         self.sink_progress = 0.0  # 0.0 to 1.0
         # Add a delay before sinking starts
-        self.sink_delay = random.uniform(0, 0.5)  # Longer random delay
+        self.sink_delay = random.uniform(0, 1.0)  # Longer random delay
         self.rotation = random.uniform(0, 360)
-        self.rotation_speed = random.uniform(-1, 1)  # Slower rotation
+        self.rotation_speed = random.uniform(-0.5, 0.5)  # Slower rotation
         self.alive = True
         
     def update(self, dt: float):
@@ -319,12 +319,13 @@ class Hex:
         self.particles = []
         
     def _init_color(self) -> None:
-        """Initialize the hex color with a slight variation."""
-        # Add slight variation to the base color
-        grey_var = random.randint(-10, 10)
-        blue_var = random.randint(-5, 5)
+        """Initialize the color of the hex tile with slight variations."""
+        # Base color is white with slight variations
+        base_r, base_g, base_b = 255, 255, 255
         
-        base_r, base_g, base_b = hex_grid.ICE_BASE_COLOR
+        # Add slight variations to create a more natural look
+        grey_var = random.randint(-10, 0)  # Slight grey variation
+        blue_var = random.randint(-5, 0)   # Slight blue tint
         
         self.color = (
             min(255, max(0, base_r + grey_var)),
@@ -598,6 +599,9 @@ class Hex:
         # Transition to BREAKING state
         self.state = HexState.BREAKING
         self.transition_start_time = pygame.time.get_ticks() / 1000.0
+        
+        # Increase transition duration for a slower, more visible animation
+        self.transition_duration = 1.5  # Increased from 0.6 seconds
         self.transition_progress = 0.0
         
         # Clear cached surfaces
@@ -621,7 +625,7 @@ class Hex:
         self.particles = []
         
         # Create more particles for a more visible effect
-        num_particles_per_unit = 0.5  # Increase density of particles
+        num_particles_per_unit = 1.0  # Increase density of particles even more
         
         for crack in self.cracks:
             if len(crack.points) < 2:
@@ -647,7 +651,7 @@ class Hex:
                     y += random.uniform(-3, 3)
                     
                     # Create particle
-                    size = random.uniform(2, 4)  # Larger particles (was 1-3)
+                    size = random.uniform(2.5, 5.0)  # Even larger particles for better visibility
                     
                     # Use a color between ice and water
                     r = int(self.color[0] * 0.8 + water.BASE_COLOR[0] * 0.2)
@@ -657,7 +661,7 @@ class Hex:
                     self.particles.append(IceParticle(x, y, size, (r, g, b)))
                     
         # Add some additional particles scattered around the hex
-        for _ in range(30):  # Add 30 more particles
+        for _ in range(50):  # Add 50 more particles (increased from 30)
             # Random position within the hex
             angle = random.uniform(0, 2 * math.pi)
             distance = random.uniform(0, hex_grid.RADIUS * 0.8)
@@ -665,7 +669,7 @@ class Hex:
             y = self.center[1] + math.sin(angle) * distance
             
             # Create particle
-            size = random.uniform(1.5, 3.5)
+            size = random.uniform(2.0, 4.5)  # Larger particles
             
             # Use a color closer to ice
             r = int(self.color[0] * 0.9 + water.BASE_COLOR[0] * 0.1)
@@ -1264,6 +1268,11 @@ class Hex:
             if not particle.alive:
                 self.particles.remove(particle)
         
+        # Debug print to verify particles are being created and updated
+        if len(self.particles) > 0 and self.transition_progress < 0.1:
+            print(f"Particles: {len(self.particles)}")
+            print(f"Color type: {type(self.color)}, value: {self.color}")
+        
         if self.broken_surface is None or len(self.fragment_sprites) == 0:
             # First time setup - create the broken surface and fragment sprites
             surface_size = int(hex_grid.RADIUS * 3)
@@ -1321,10 +1330,10 @@ class Hex:
         # Create a layered rendering approach using separate surfaces
         # Get hex bounds for creating appropriately sized surfaces
         hex_bounds = self._get_hex_bounds()
-        width = int(hex_bounds[2] - hex_bounds[0] + 20)  # Add more padding
-        height = int(hex_bounds[3] - hex_bounds[1] + 20)
-        offset_x = hex_bounds[0] - 10
-        offset_y = hex_bounds[1] - 10
+        width = int(hex_bounds[2] - hex_bounds[0] + 40)  # Add more padding
+        height = int(hex_bounds[3] - hex_bounds[1] + 40)
+        offset_x = hex_bounds[0] - 20
+        offset_y = hex_bounds[1] - 20
         
         # Create a hex mask for clipping (used for both particles and cracks)
         hex_mask_surface = pygame.Surface((width, height), pygame.SRCALPHA)
@@ -1341,8 +1350,8 @@ class Hex:
         water_surface = pygame.Surface((width, height), pygame.SRCALPHA)
         
         # Draw water with alpha based on transition progress
-        if t > 0.2:
-            water_alpha = int(220 * ((t - 0.2) / 0.8))
+        if t > 0.1:  # Start showing water earlier
+            water_alpha = int(220 * ((t - 0.1) / 0.9))  # Adjust formula for earlier start
             water_color_with_alpha = (*water.BASE_COLOR, water_alpha)
             pygame.draw.polygon(water_surface, water_color_with_alpha, local_vertices)
         
@@ -1393,16 +1402,20 @@ class Hex:
             del neighbor_mask_array
         del hex_mask_array
         
-        # 3. Create a surface for the ice fragments and cracks (top layer)
+        # 3. Create a surface for the ice (with reduced opacity as it breaks)
         ice_surface = pygame.Surface((width, height), pygame.SRCALPHA)
         
-        # Draw the base hex
+        # Draw the base hex with solid color (no alpha)
         pygame.draw.polygon(ice_surface, self.color, local_vertices)
         
-        # Draw cracks on a separate surface for clipping
+        # Apply a fade effect by adjusting the surface's alpha
+        ice_alpha = int(255 * (1.0 - t * 0.7))
+        ice_surface.set_alpha(ice_alpha)
+        
+        # 4. Create a surface for the cracks (top layer)
         crack_surface = pygame.Surface((width, height), pygame.SRCALPHA)
         
-        # Draw cracks with increasing width
+        # Draw cracks with increasing width - ALWAYS VISIBLE
         crack_width = 1 + 9 * t
         for crack in self.cracks:
             if len(crack.points) < 2:
@@ -1411,7 +1424,7 @@ class Hex:
             # Adjust crack points to the local surface coordinates
             local_points = [(p[0] - offset_x, p[1] - offset_y) for p in crack.points]
             
-            # Draw the crack
+            # Draw the crack with full opacity to ensure visibility
             pygame.draw.lines(crack_surface, water.BASE_COLOR, False, local_points, int(crack_width))
         
         # Apply the hex mask to the crack surface to keep cracks within the hex
@@ -1425,9 +1438,6 @@ class Hex:
         del crack_array
         del hex_mask_array
         
-        # Blit the crack surface onto the ice surface
-        ice_surface.blit(crack_surface, (0, 0))
-        
         # Now composite the layers in the correct order onto the screen
         # 1. First the water layer
         screen.blit(water_surface, (offset_x, offset_y))
@@ -1437,6 +1447,9 @@ class Hex:
         
         # 3. Then the ice layer
         screen.blit(ice_surface, (offset_x, offset_y))
+        
+        # 4. Finally, draw the cracks on top of everything to ensure visibility
+        screen.blit(crack_surface, (offset_x, offset_y))
         
         # Update fragment positions based on transition progress
         for i, sprite in enumerate(self.fragment_sprites):
