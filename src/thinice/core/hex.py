@@ -6,14 +6,14 @@ from typing import List, Tuple, Optional
 
 from .hex_state import HexState
 from .crack import Crack
-from ..config.settings import hex_grid, crack as crack_config, animation, water
+from ..config.settings import hex_grid, crack as crack_config, water
 from ..utils.geometry import (
     Point, 
     calculate_hex_vertices,
     calculate_edge_points,
     point_in_hex
 )
-from ..events import EventType
+
 
 class Hex:
     """Represents a hexagonal tile in the game grid."""
