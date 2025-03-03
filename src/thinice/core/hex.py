@@ -528,7 +528,7 @@ class Hex:
         
         # Pre-calculate secondary cracks for animation
         # We'll store them but only show them in the second half of the animation
-        # self._calculate_secondary_cracks()
+        self._calculate_secondary_cracks()
     
     def _calculate_secondary_cracks(self) -> None:
         """Pre-calculate secondary cracks for animation."""
