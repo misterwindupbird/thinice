@@ -33,6 +33,9 @@ class CrackConfig:
     SEGMENT_LENGTH: int = 15
     SECONDARY_CRACK_CHANCE: float = 0.5
     MAX_SECONDARY_CRACKS: int = 5
+    # Probability distribution for secondary cracks between a pair of primaries
+    # 20% chance of 0, 60% chance of 1, 20% chance of 2
+    SECONDARY_CRACK_DISTRIBUTION: Tuple[float, float, float] = (0.2, 0.6, 0.2)
 
 @dataclass
 class WaterConfig:
