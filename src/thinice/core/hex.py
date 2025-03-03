@@ -390,9 +390,9 @@ class Hex:
         Returns:
             The created crack or None if invalid
         """
-        if not point_in_hex(end_point, self.center, hex_grid.RADIUS):
-            return None
-            
+        # Remove the boundary check since edge points are calculated from hex vertices
+        # and should always be valid endpoints for cracks
+        
         crack = Crack(self.center)
         num_segments = max(
             crack_config.MIN_SEGMENTS,
@@ -464,6 +464,8 @@ class Hex:
         if self.state != HexState.SOLID:
             return
             
+        print(f"DEBUG: Starting crack() for hex ({self.grid_x}, {self.grid_y}), with vertices {self.vertices}")
+
         # Change to CRACKING state instead of directly to CRACKED
         self.state = HexState.CRACKING
         self.transition_start_time = pygame.time.get_ticks() / 1000.0  # Current time in seconds
@@ -482,20 +484,25 @@ class Hex:
             if neighbor.state != HexState.CRACKED:
                 continue
                 
+            print(f"DEBUG: Neighbor at ({neighbor.grid_x}, {neighbor.grid_y}) is cracked")
             edge_index = self.get_shared_edge_index(neighbor)
+            print(f"DEBUG: My edge index: {edge_index}")
             if edge_index == -1:
                 continue
                 
             shared_point = self.edge_points[edge_index]
-            
+            print(f"DEBUG: Shared point: {shared_point}")
             # Ensure neighbor has connecting crack
             if not neighbor.has_crack_to_point(shared_point):
+                print(f"DEBUG: Neighbor does not have crack to point {shared_point}")
                 # Store this crack to be added during animation
                 self.pending_cracks.append(("neighbor", neighbor, shared_point))
+                print(f"DEBUG: Added neighbor crack to point {shared_point}, there are now {len(self.pending_cracks)} pending cracks")
             
             # Store our connecting crack for animation
             self.pending_cracks.append(("self", self, shared_point))
-        
+            print(f"DEBUG: Added self crack to point {shared_point}, there are now {len(self.pending_cracks)} pending cracks")
+
         # Add minimum number of cracks - store for animation
         num_cracks = random.randint(crack_config.MIN_CRACKS, crack_config.MAX_CRACKS)
         
@@ -517,10 +524,11 @@ class Hex:
         while len(self.pending_cracks) < num_cracks and available_edges:
             edge_index = available_edges.pop()
             self.pending_cracks.append(("self", self, self.edge_points[edge_index]))
+            print(f"DEBUG: Added self crack to edge {edge_index}, point {self.edge_points[edge_index]}, there are now {len(self.pending_cracks)} pending cracks")
         
         # Pre-calculate secondary cracks for animation
         # We'll store them but only show them in the second half of the animation
-        self._calculate_secondary_cracks()
+        # self._calculate_secondary_cracks()
     
     def _calculate_secondary_cracks(self) -> None:
         """Pre-calculate secondary cracks for animation."""
