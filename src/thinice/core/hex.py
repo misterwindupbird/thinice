@@ -405,12 +405,6 @@ class Hex:
         
         # Clear cached surfaces
         self.broken_surface = None
-        
-        # Trigger sound effect
-        pygame.event.post(pygame.event.Event(
-            EventType.PLAY_SOUND.value, 
-            {"sound": "ice_break", "volume": 0.7}
-        ))
     
     def _add_edge_cracks(self) -> None:
         """Add cracks along the perimeter of the hex to detach fragments."""
