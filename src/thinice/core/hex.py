@@ -73,24 +73,64 @@ class IceFragment(pygame.sprite.Sprite):
         self.offset_x = 0
         self.offset_y = 0
         self.creation_time = pygame.time.get_ticks() / 1000.0
+        
+        # Collision properties
+        self.radius = max(width, height) / 2  # Simple circular collision
     
-    def update(self, current_time: float) -> None:
+    def update(self, current_time: float, non_broken_hexes: List['Hex'] = None) -> None:
         """Update the fragment's position and rotation.
         
         Args:
             current_time: Current game time in seconds
+            non_broken_hexes: List of hexes that are not in BROKEN state
         """
         # Calculate time since creation
         time_since_creation = current_time - self.creation_time
         
-        # Calculate drift (limited to prevent fragments from drifting too far)
+        # Calculate potential new position
         max_drift = 15  # Maximum drift distance
-        self.offset_x = min(max_drift, self.dx * time_since_creation)
-        self.offset_y = min(max_drift, self.dy * time_since_creation)
+        new_offset_x = min(max_drift, self.dx * time_since_creation)
+        new_offset_y = min(max_drift, self.dy * time_since_creation)
         
         # Add bobbing motion
         bob_y = math.sin(current_time * self.bob_speed + self.bob_phase) * self.bob_amount
-        self.offset_y += bob_y
+        new_offset_y += bob_y
+        
+        # Check for collisions with non-broken hexes
+        new_center_x = self.center[0] + new_offset_x
+        new_center_y = self.center[1] + new_offset_y
+        
+        # Only apply movement if it doesn't cause a collision
+        if non_broken_hexes:
+            collision = False
+            for hex in non_broken_hexes:
+                # Simple distance-based collision detection
+                distance = math.sqrt((new_center_x - hex.center[0])**2 + (new_center_y - hex.center[1])**2)
+                if distance < (self.radius + hex_grid.RADIUS - 5):  # Subtract a small buffer
+                    # Calculate bounce direction (away from the hex)
+                    dx = new_center_x - hex.center[0]
+                    dy = new_center_y - hex.center[1]
+                    
+                    # Normalize and reverse direction
+                    length = math.sqrt(dx**2 + dy**2)
+                    if length > 0:
+                        dx /= length
+                        dy /= length
+                        
+                        # Reverse direction with a small bounce effect
+                        self.dx = -self.dx + dx * 0.05
+                        self.dy = -self.dy + dy * 0.05
+                    
+                    collision = True
+                    break
+            
+            if not collision:
+                self.offset_x = new_offset_x
+                self.offset_y = new_offset_y
+        else:
+            # No collision checking, just apply the movement
+            self.offset_x = new_offset_x
+            self.offset_y = new_offset_y
         
         # Update rotation
         max_rotation = math.pi / 6  # 30 degrees
@@ -704,12 +744,13 @@ class Hex:
         
         return result
     
-    def _draw_broken(self, screen: pygame.Surface, current_time: float = 0) -> None:
+    def _draw_broken(self, screen: pygame.Surface, current_time: float = 0, non_broken_hexes: List['Hex'] = None) -> None:
         """Draw the broken state with widened cracks showing water beneath and colored fragments.
         
         Args:
             screen: Surface to draw on
             current_time: Current game time in seconds (optional)
+            non_broken_hexes: List of hexes that are not in BROKEN state (for collision detection)
         """
         # First time setup - create the broken surface and fragment sprites
         if self.broken_surface is None:
@@ -750,7 +791,7 @@ class Hex:
         pygame.draw.polygon(screen, water.BASE_COLOR, self.vertices)
         
         # Update and draw the fragment sprites
-        self.fragment_sprites.update(current_time)
+        self.fragment_sprites.update(current_time, non_broken_hexes)
         self.fragment_sprites.draw(screen)
     
     def _draw_cracked(self, screen: pygame.Surface, font: pygame.font.Font) -> None:
@@ -806,17 +847,18 @@ class Hex:
         
         return None
     
-    def draw(self, screen: pygame.Surface, font: pygame.font.Font, current_time: float) -> None:
-        """Draw the hex tile.
+    def draw(self, screen: pygame.Surface, font: pygame.font.Font, current_time: float, non_broken_hexes: List['Hex'] = None) -> None:
+        """Draw the hex tile based on its current state.
         
         Args:
             screen: Surface to draw on
-            font: Font for coordinate display
+            font: Font for text rendering
             current_time: Current game time in seconds
+            non_broken_hexes: List of hexes that are not in BROKEN state (for collision detection)
         """
-        if self.state == HexState.BROKEN:
-            self._draw_broken(screen, current_time)
+        if self.state == HexState.SOLID:
+            self._draw_solid(screen, font)
         elif self.state == HexState.CRACKED:
             self._draw_cracked(screen, font)
-        else:  # SOLID state
-            self._draw_solid(screen, font) 
+        elif self.state == HexState.BROKEN:
+            self._draw_broken(screen, current_time, non_broken_hexes) 

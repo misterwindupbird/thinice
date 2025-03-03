@@ -208,6 +208,19 @@ class Game:
             current_time: Current game time in seconds
         """
         self.screen.fill(display.BACKGROUND_COLOR)
+        
+        # Collect all non-broken hexes for collision detection
+        non_broken_hexes = []
         for row in self.hexes:
             for hex in row:
-                hex.draw(self.screen, self.font, current_time) 
+                if hex.state != HexState.BROKEN:
+                    non_broken_hexes.append(hex)
+        
+        # Draw all hexes
+        for row in self.hexes:
+            for hex in row:
+                if hex.state == HexState.BROKEN:
+                    # Pass non-broken hexes for collision detection
+                    hex.draw(self.screen, self.font, current_time, non_broken_hexes)
+                else:
+                    hex.draw(self.screen, self.font, current_time) 
