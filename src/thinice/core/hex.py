@@ -186,6 +186,100 @@ class IceFragment(pygame.sprite.Sprite):
         # Update the image
         self.image = new_surface
 
+class IceParticle:
+    """Small ice particle that sinks into the water during breaking animation."""
+    
+    def __init__(self, x: float, y: float, size: float, color: Tuple[int, int, int]):
+        self.x = x
+        self.y = y
+        self.size = size
+        self.original_size = size
+        self.color = color
+        self.alpha = 255
+        # Small random movement on the surface
+        self.speed_x = random.uniform(-0.2, 0.2)  # Even slower movement
+        self.speed_y = random.uniform(-0.2, 0.2)  # Even slower movement
+        # Sinking speed (z-axis represented by scaling and alpha)
+        self.sink_speed = random.uniform(0.001, 0.005)  # Even slower sinking
+        self.sink_progress = 0.0  # 0.0 to 1.0
+        # Add a delay before sinking starts
+        self.sink_delay = random.uniform(0, 0.5)  # Longer random delay
+        self.rotation = random.uniform(0, 360)
+        self.rotation_speed = random.uniform(-1, 1)  # Slower rotation
+        self.alive = True
+        
+    def update(self, dt: float):
+        """Update particle position, scale, and alpha to simulate sinking."""
+        # Small random movement on the water surface
+        self.x += self.speed_x
+        self.y += self.speed_y
+        
+        # Slow down surface movement as it sinks
+        self.speed_x *= 0.99
+        self.speed_y *= 0.99
+        
+        # Update rotation
+        self.rotation += self.rotation_speed
+        
+        # Handle sink delay
+        if self.sink_delay > 0:
+            self.sink_delay -= dt
+            return
+            
+        # Update sinking progress
+        self.sink_progress += self.sink_speed
+        if self.sink_progress >= 1.0:
+            self.alive = False
+            return
+            
+        # Scale down as it sinks (z-axis effect)
+        self.size = self.original_size * (1.0 - self.sink_progress * 0.7)  # Slower size reduction
+        
+        # Fade out as it sinks deeper
+        self.alpha = int(255 * (1.0 - self.sink_progress))
+            
+    def draw(self, surface: pygame.Surface, offset_x: float, offset_y: float):
+        """Draw the particle on the surface."""
+        if not self.alive or self.size < 0.5:  # Don't draw tiny particles
+            return
+            
+        # Create a small surface for the particle
+        particle_surf = pygame.Surface((int(self.size * 3), int(self.size * 3)), pygame.SRCALPHA)
+        
+        # Draw a small polygon (ice shard) - more ice-like shape
+        if random.random() < 0.7:  # 70% chance for irregular polygon (ice shard)
+            points = []
+            num_points = random.randint(4, 6)  # More points for more complex shapes
+            for i in range(num_points):
+                angle = math.radians(self.rotation + (i * 360 / num_points))
+                # Vary the radius to create more irregular shapes
+                radius = self.size * random.uniform(0.7, 1.3)
+                px = self.size * 1.5 + math.cos(angle) * radius
+                py = self.size * 1.5 + math.sin(angle) * radius
+                points.append((px, py))
+                
+            # Draw the polygon with the particle's alpha
+            color_with_alpha = (*self.color, self.alpha)
+            pygame.draw.polygon(particle_surf, color_with_alpha, points)
+        else:  # 30% chance for simple rectangle (ice flake)
+            width = random.uniform(self.size * 0.5, self.size * 1.5)
+            height = random.uniform(self.size * 0.5, self.size * 1.5)
+            x = self.size * 1.5 - width/2
+            y = self.size * 1.5 - height/2
+            
+            # Rotate the rectangle
+            rotated_surf = pygame.Surface((int(width), int(height)), pygame.SRCALPHA)
+            color_with_alpha = (*self.color, self.alpha)
+            pygame.draw.rect(rotated_surf, color_with_alpha, (0, 0, width, height))
+            rotated_surf = pygame.transform.rotate(rotated_surf, self.rotation)
+            
+            # Blit the rotated rectangle to the particle surface
+            rect = rotated_surf.get_rect(center=(self.size * 1.5, self.size * 1.5))
+            particle_surf.blit(rotated_surf, rect)
+        
+        # Blit to the main surface
+        surface.blit(particle_surf, (int(self.x - self.size * 1.5 + offset_x), int(self.y - self.size * 1.5 + offset_y)))
+
 class Hex:
     """Represents a hexagonal tile in the game grid."""
     
@@ -219,6 +313,9 @@ class Hex:
         self.transition_duration = 0.4  # Faster animation (was 1.0 second)
         self.transition_progress = 0.0  # 0.0 to 1.0
         self.original_fragment_positions = []  # To store initial positions for animation
+        
+        # Ice particles for breaking effect
+        self.particles = []
         
     def _init_color(self) -> None:
         """Initialize the hex color with slight random variations."""
@@ -437,6 +534,63 @@ class Hex:
             center_x = sum(p[0] for p in fragment) / len(fragment)
             center_y = sum(p[1] for p in fragment) / len(fragment)
             self.original_fragment_positions.append((center_x, center_y))
+            
+        # Create ice particles along the cracks
+        self.particles = []
+        
+        # Create more particles for a more visible effect
+        num_particles_per_unit = 0.5  # Increase density of particles
+        
+        for crack in self.cracks:
+            if len(crack.points) < 2:
+                continue
+                
+            # Add particles along each crack
+            for i in range(1, len(crack.points)):
+                p1 = crack.points[i-1]
+                p2 = crack.points[i]
+                
+                # Calculate distance for this segment
+                distance = ((p2[0] - p1[0])**2 + (p2[1] - p1[1])**2)**0.5
+                
+                # Add particles along the line
+                num_particles = int(distance * num_particles_per_unit)
+                for j in range(num_particles):
+                    t = j / num_particles
+                    x = p1[0] + (p2[0] - p1[0]) * t
+                    y = p1[1] + (p2[1] - p1[1]) * t
+                    
+                    # Add some randomness to position
+                    x += random.uniform(-3, 3)
+                    y += random.uniform(-3, 3)
+                    
+                    # Create particle
+                    size = random.uniform(2, 4)  # Larger particles (was 1-3)
+                    
+                    # Use a color between ice and water
+                    r = int(self.color[0] * 0.8 + water.BASE_COLOR[0] * 0.2)
+                    g = int(self.color[1] * 0.8 + water.BASE_COLOR[1] * 0.2)
+                    b = int(self.color[2] * 0.8 + water.BASE_COLOR[2] * 0.2)
+                    
+                    self.particles.append(IceParticle(x, y, size, (r, g, b)))
+                    
+        # Add some additional particles scattered around the hex
+        for _ in range(30):  # Add 30 more particles
+            # Random position within the hex
+            angle = random.uniform(0, 2 * math.pi)
+            distance = random.uniform(0, hex_grid.RADIUS * 0.8)
+            x = self.center[0] + math.cos(angle) * distance
+            y = self.center[1] + math.sin(angle) * distance
+            
+            # Create particle
+            size = random.uniform(1.5, 3.5)
+            
+            # Use a color closer to ice
+            r = int(self.color[0] * 0.9 + water.BASE_COLOR[0] * 0.1)
+            g = int(self.color[1] * 0.9 + water.BASE_COLOR[1] * 0.1)
+            b = int(self.color[2] * 0.9 + water.BASE_COLOR[2] * 0.1)
+            
+            self.particles.append(IceParticle(x, y, size, (r, g, b)))
     
     def _add_edge_cracks(self) -> None:
         """Add cracks along the perimeter of the hex to detach fragments."""
@@ -850,6 +1004,15 @@ class Hex:
         # This makes the start of the animation faster and the end slower
         t = 1 - (1 - self.transition_progress) ** 3  # Cubic ease-out for smoother feel
         
+        # Calculate time delta for particle updates
+        dt = 1/60  # Assume 60 FPS
+        
+        # Update particles
+        for particle in self.particles[:]:
+            particle.update(dt)
+            if not particle.alive:
+                self.particles.remove(particle)
+        
         if self.broken_surface is None or len(self.fragment_sprites) == 0:
             # First time setup - create the broken surface and fragment sprites
             surface_size = int(hex_grid.RADIUS * 3)
@@ -904,103 +1067,149 @@ class Hex:
             # Store the surface for reuse
             self.broken_surface = temp_surface
         
-        # Draw the base hex first
-        pygame.draw.polygon(screen, self.color, self.vertices)
-        
-        # Create a mask surface for clipping the cracks to the hex boundary
+        # Create a layered rendering approach using separate surfaces
+        # Get hex bounds for creating appropriately sized surfaces
         hex_bounds = self._get_hex_bounds()
-        mask_width = int(hex_bounds[2] - hex_bounds[0] + 10)  # Add some padding
-        mask_height = int(hex_bounds[3] - hex_bounds[1] + 10)
+        width = int(hex_bounds[2] - hex_bounds[0] + 20)  # Add more padding
+        height = int(hex_bounds[3] - hex_bounds[1] + 20)
+        offset_x = hex_bounds[0] - 10
+        offset_y = hex_bounds[1] - 10
         
-        # Create a temporary surface for drawing the cracks with clipping
-        crack_surface = pygame.Surface((mask_width, mask_height), pygame.SRCALPHA)
+        # Create a hex mask for clipping (used for both particles and cracks)
+        hex_mask_surface = pygame.Surface((width, height), pygame.SRCALPHA)
+        hex_mask_surface.fill((0, 0, 0, 0))  # Start with fully transparent
         
-        # Draw the hex shape as a mask (fully opaque)
-        local_vertices = [(x - hex_bounds[0] + 5, y - hex_bounds[1] + 5) for x, y in self.vertices]
-        pygame.draw.polygon(crack_surface, (255, 255, 255, 255), local_vertices)
+        # Draw the hex shape in the mask
+        local_vertices = [(x - offset_x, y - offset_y) for x, y in self.vertices]
+        pygame.draw.polygon(hex_mask_surface, (255, 255, 255, 255), local_vertices)
         
         # Create a mask from the hex shape
-        hex_mask = pygame.mask.from_surface(crack_surface)
+        hex_mask = pygame.mask.from_surface(hex_mask_surface)
         
-        # Clear the surface for drawing the cracks
-        crack_surface.fill((0, 0, 0, 0))
+        # 1. Create a surface for the water (bottom layer)
+        water_surface = pygame.Surface((width, height), pygame.SRCALPHA)
         
-        # Draw cracks with increasing width - use the water BASE_COLOR to match the water
+        # Draw water with alpha based on transition progress
+        if t > 0.2:
+            water_alpha = int(220 * ((t - 0.2) / 0.8))
+            water_color_with_alpha = (*water.BASE_COLOR, water_alpha)
+            pygame.draw.polygon(water_surface, water_color_with_alpha, local_vertices)
+        
+        # 2. Create a surface for the particles (middle layer)
+        particle_surface = pygame.Surface((width, height), pygame.SRCALPHA)
+        
+        # Create a mask for SOLID/CRACKED hexes to prevent particles from appearing on top of them
+        if non_broken_hexes:
+            # Create a mask surface
+            neighbor_mask_surface = pygame.Surface((width, height), pygame.SRCALPHA)
+            neighbor_mask_surface.fill((0, 0, 0, 0))  # Start with fully transparent
+            
+            # Draw all non-broken (SOLID/CRACKED) hexes as opaque areas in the mask
+            for hex_tile in non_broken_hexes:
+                if hex_tile.state in [HexState.SOLID, HexState.CRACKED]:
+                    # Only mask if the hex is close enough to potentially overlap with particles
+                    dx = hex_tile.center[0] - self.center[0]
+                    dy = hex_tile.center[1] - self.center[1]
+                    distance = (dx**2 + dy**2)**0.5
+                    
+                    if distance < hex_grid.RADIUS * 3:  # Only consider nearby hexes
+                        # Draw the hex shape in the mask
+                        mask_vertices = [(x - offset_x, y - offset_y) for x, y in hex_tile.vertices]
+                        pygame.draw.polygon(neighbor_mask_surface, (0, 0, 0, 255), mask_vertices)
+        
+        # Draw all particles on the particle surface
+        for particle in self.particles:
+            particle.draw(particle_surface, -offset_x, -offset_y)
+        
+        # Apply the hex mask to the particle surface to keep particles within the hex
+        particle_array = pygame.surfarray.pixels_alpha(particle_surface)
+        hex_mask_array = pygame.surfarray.pixels_alpha(hex_mask_surface)
+        
+        # Only keep particles where the hex mask is set
+        particle_array[:] = numpy.minimum(particle_array, hex_mask_array)
+        
+        # Apply the neighbor mask to the particle surface if we have non-broken hexes
+        if non_broken_hexes:
+            # Convert surfaces to pixel arrays for manipulation
+            neighbor_mask_array = pygame.surfarray.pixels_alpha(neighbor_mask_surface)
+            
+            # Zero out particle alpha where neighbor mask is opaque
+            particle_array[:] = numpy.where(neighbor_mask_array > 0, 0, particle_array)
+        
+        # Clean up to release surface locks
+        del particle_array
+        if non_broken_hexes:
+            del neighbor_mask_array
+        del hex_mask_array
+        
+        # 3. Create a surface for the ice fragments and cracks (top layer)
+        ice_surface = pygame.Surface((width, height), pygame.SRCALPHA)
+        
+        # Draw the base hex
+        pygame.draw.polygon(ice_surface, self.color, local_vertices)
+        
+        # Draw cracks on a separate surface for clipping
+        crack_surface = pygame.Surface((width, height), pygame.SRCALPHA)
+        
+        # Draw cracks with increasing width
         crack_width = 1 + 9 * t
         for crack in self.cracks:
             if len(crack.points) < 2:
                 continue
-                
-            # Adjust crack points to the local surface coordinates
-            local_points = [(p[0] - hex_bounds[0] + 5, p[1] - hex_bounds[1] + 5) for p in crack.points]
             
-            # Draw the crack on the temporary surface
+            # Adjust crack points to the local surface coordinates
+            local_points = [(p[0] - offset_x, p[1] - offset_y) for p in crack.points]
+            
+            # Draw the crack
             pygame.draw.lines(crack_surface, water.BASE_COLOR, False, local_points, int(crack_width))
         
-        # Apply the mask to the crack surface (only keep pixels where the mask is set)
-        crack_surface_array = pygame.surfarray.pixels_alpha(crack_surface)
-        mask_array = hex_mask.to_surface(unsetcolor=(0, 0, 0, 0), setcolor=(0, 0, 0, 255))
-        mask_alpha = pygame.surfarray.array_alpha(mask_array)
+        # Apply the hex mask to the crack surface to keep cracks within the hex
+        crack_array = pygame.surfarray.pixels_alpha(crack_surface)
+        hex_mask_array = pygame.surfarray.pixels_alpha(hex_mask_surface)
         
-        # Multiply the alpha channels to clip the cracks to the hex shape
-        crack_surface_array[:] = numpy.minimum(crack_surface_array, mask_alpha)
-        del crack_surface_array  # Release the surface lock
+        # Only keep cracks where the hex mask is set
+        crack_array[:] = numpy.minimum(crack_array, hex_mask_array)
         
-        # Blit the crack surface onto the screen
-        screen.blit(crack_surface, (hex_bounds[0] - 5, hex_bounds[1] - 5))
+        # Clean up to release surface lock
+        del crack_array
+        del hex_mask_array
         
-        # Draw the water underneath with a separate surface for transparency
-        # Start showing water earlier in the animation
-        if t > 0.2:  # Start showing water earlier (was 0.3)
-            water_alpha = int(220 * ((t - 0.2) / 0.8))  # Scale from 0 to 220 alpha, start earlier
-            
-            # Create a surface just for this hex, not the whole screen
-            hex_bounds = self._get_hex_bounds()
-            width = int(hex_bounds[2] - hex_bounds[0] + 10)  # Add some padding
-            height = int(hex_bounds[3] - hex_bounds[1] + 10)
-            
-            # Create water surface with alpha
-            water_surface = pygame.Surface((width, height), pygame.SRCALPHA)
-            
-            # Adjust vertices to the local surface coordinates
-            local_vertices = [(x - hex_bounds[0] + 5, y - hex_bounds[1] + 5) for x, y in self.vertices]
-            
-            # Draw water with alpha
-            water_color_with_alpha = (*water.BASE_COLOR, water_alpha)
-            pygame.draw.polygon(water_surface, water_color_with_alpha, local_vertices)
-            
-            # Blit the water surface onto the screen at the correct position
-            screen.blit(water_surface, (hex_bounds[0] - 5, hex_bounds[1] - 5))
+        # Blit the crack surface onto the ice surface
+        ice_surface.blit(crack_surface, (0, 0))
+        
+        # Now composite the layers in the correct order onto the screen
+        # 1. First the water layer
+        screen.blit(water_surface, (offset_x, offset_y))
+        
+        # 2. Then the particle layer
+        screen.blit(particle_surface, (offset_x, offset_y))
+        
+        # 3. Then the ice layer
+        screen.blit(ice_surface, (offset_x, offset_y))
         
         # Update fragment positions based on transition progress
         for i, sprite in enumerate(self.fragment_sprites):
             if i < len(self.original_fragment_positions):
                 original_pos = self.original_fragment_positions[i]
                 
-                # Calculate vector from center to fragment
-                dx = original_pos[0] - self.center[0]
-                dy = original_pos[1] - self.center[1]
+                # Remove the "flying away" effect - keep fragments in place
+                # Just gradually increase bobbing and rotation as transition progresses
                 
-                # Scale the movement based on transition progress
-                # This creates a "pushing outward" effect - increase movement amount
-                move_scale = t * 0.3  # Increased movement to 30% of the distance (was 0.2)
-                
-                # Update sprite position
-                sprite.offset_x = dx * move_scale
-                sprite.offset_y = dy * move_scale
+                # Update sprite position to original position (no offset)
+                sprite.offset_x = 0
+                sprite.offset_y = 0
                 
                 # Update sprite rect
-                sprite.rect.x = int(original_pos[0] - sprite.rect.width / 2 + sprite.offset_x)
-                sprite.rect.y = int(original_pos[1] - sprite.rect.height / 2 + sprite.offset_y)
+                sprite.rect.x = int(original_pos[0] - sprite.rect.width / 2)
+                sprite.rect.y = int(original_pos[1] - sprite.rect.height / 2)
                 
-                # Gradually increase rotation and bobbing as transition progresses
-                # Start bobbing earlier in the animation
-                if t > 0.6:  # Start bobbing earlier (was 0.7)
-                    bob_factor = (t - 0.6) / 0.4  # Scale from 0 to 1 in the last 40% of the transition
+                # Gradually increase bobbing as transition progresses
+                if t > 0.5:  # Start bobbing halfway through the transition
+                    bob_factor = (t - 0.5) / 0.5  # Scale from 0 to 1 in the last 50% of the transition
                     sprite.bob_amount = sprite.bob_amount * (1 - bob_factor) + (random.uniform(0.3, 0.8) * bob_factor)
                     sprite.rotation = sprite.rotation * (1 - bob_factor) + (random.uniform(-0.05, 0.05) * bob_factor)
         
-        # Draw the fragments
+        # Draw the fragments on top of everything
         self.fragment_sprites.draw(screen)
     
     def _get_hex_bounds(self) -> Tuple[float, float, float, float]:

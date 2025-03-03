@@ -219,7 +219,7 @@ class Game:
         # Draw all hexes
         for row in self.hexes:
             for hex in row:
-                if hex.state == HexState.BROKEN:
+                if hex.state in [HexState.BROKEN, HexState.BREAKING]:
                     # Pass non-broken hexes for collision detection
                     hex.draw(self.screen, self.font, current_time, non_broken_hexes)
                 else:
