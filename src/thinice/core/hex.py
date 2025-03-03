@@ -3,6 +3,7 @@ import random
 import math
 import pygame
 from typing import List, Tuple, Optional, Dict, Set
+import numpy
 
 from .hex_state import HexState
 from .crack import Crack
@@ -86,6 +87,13 @@ class IceFragment(pygame.sprite.Sprite):
         """
         # Calculate time since creation
         time_since_creation = current_time - self.creation_time
+        
+        # Skip movement if bob_amount or rotation is zero (during transition)
+        if self.bob_amount == 0 and self.rotation == 0:
+            # Just update the sprite's position based on current offset
+            self.rect.x = int(self.center[0] - self.rect.width / 2 + self.offset_x)
+            self.rect.y = int(self.center[1] - self.rect.height / 2 + self.offset_y)
+            return
         
         # Calculate potential new position
         max_drift = 15  # Maximum drift distance
@@ -205,6 +213,12 @@ class Hex:
         self.broken_surface = None
         self.fragment_sprites = pygame.sprite.Group()
         self.break_time = 0
+        
+        # For transition animation
+        self.transition_start_time = 0
+        self.transition_duration = 0.4  # Faster animation (was 1.0 second)
+        self.transition_progress = 0.0  # 0.0 to 1.0
+        self.original_fragment_positions = []  # To store initial positions for animation
         
     def _init_color(self) -> None:
         """Initialize the hex color with slight random variations."""
@@ -391,7 +405,7 @@ class Hex:
     
     def break_ice(self) -> None:
         """Break the ice by adding the minimum necessary cracks.
-        Transitions to the BROKEN state.
+        Transitions to the BREAKING state for animation.
         """
         if self.state != HexState.CRACKED:
             return
@@ -402,15 +416,27 @@ class Hex:
         self._add_edge_cracks()
         print(f"Total cracks after adding edge cracks: {len(self.cracks)}")
         
-        # Transition to BROKEN state
-        self.state = HexState.BROKEN
-        self.break_time = pygame.time.get_ticks() / 1000.0
+        # Transition to BREAKING state
+        self.state = HexState.BREAKING
+        self.transition_start_time = pygame.time.get_ticks() / 1000.0
+        self.transition_progress = 0.0
         
         # Clear cached surfaces
         self.broken_surface = None
         
         # Clear any existing fragment sprites
         self.fragment_sprites.empty()
+        
+        # Find ice fragments but don't create sprites yet
+        self._find_ice_fragments()
+        
+        # Store original positions for animation
+        self.original_fragment_positions = []
+        for fragment in self.ice_fragments:
+            # Calculate center of fragment
+            center_x = sum(p[0] for p in fragment) / len(fragment)
+            center_y = sum(p[1] for p in fragment) / len(fragment)
+            self.original_fragment_positions.append((center_x, center_y))
     
     def _add_edge_cracks(self) -> None:
         """Add cracks along the perimeter of the hex to detach fragments."""
@@ -811,6 +837,184 @@ class Hex:
         
         return None
     
+    def _draw_breaking(self, screen: pygame.Surface, font: pygame.font.Font, current_time: float, non_broken_hexes: List['Hex'] = None) -> None:
+        """Draw the breaking animation state with widening cracks and separating fragments.
+        
+        Args:
+            screen: Surface to draw on
+            font: Font for text rendering
+            current_time: Current game time in seconds
+            non_broken_hexes: List of hexes that are not in BROKEN state (for collision detection)
+        """
+        # Use a cubic ease-out function for even smoother animation
+        # This makes the start of the animation faster and the end slower
+        t = 1 - (1 - self.transition_progress) ** 3  # Cubic ease-out for smoother feel
+        
+        if self.broken_surface is None or len(self.fragment_sprites) == 0:
+            # First time setup - create the broken surface and fragment sprites
+            surface_size = int(hex_grid.RADIUS * 3)
+            temp_surface = pygame.Surface((surface_size, surface_size), pygame.SRCALPHA)
+            
+            # Offset for drawing on the surface
+            offset_x = surface_size // 2
+            offset_y = surface_size // 2
+            
+            # Draw water underneath (dark blue)
+            adjusted_vertices = [(x - self.center[0] + offset_x, y - self.center[1] + offset_y) 
+                                for x, y in self.vertices]
+            pygame.draw.polygon(temp_surface, water.BASE_COLOR, adjusted_vertices)
+            
+            # Draw the base ice (white)
+            pygame.draw.polygon(temp_surface, self.color, adjusted_vertices)
+            
+            # Draw cracks with width based on transition progress
+            for crack in self.cracks:
+                if len(crack.points) < 2:
+                    continue
+                    
+                adjusted_points = [(p[0] - self.center[0] + offset_x, p[1] - self.center[1] + offset_y) 
+                                for p in crack.points]
+                
+                # Calculate crack width based on transition progress
+                # Start with hairline (1px) and widen to 10px
+                crack_width = 1 + 9 * t
+                pygame.draw.lines(temp_surface, water.BASE_COLOR, False, adjusted_points, int(crack_width))
+            
+            # Create fragment sprites if they don't exist yet
+            if len(self.fragment_sprites) == 0:
+                for i, fragment in enumerate(self.ice_fragments):
+                    # Calculate center of fragment
+                    center_x = sum(p[0] for p in fragment) / len(fragment)
+                    center_y = sum(p[1] for p in fragment) / len(fragment)
+                    
+                    # Create sprite
+                    sprite = IceFragment(
+                        fragment, 
+                        self.color,
+                        (center_x, center_y),
+                        self.center
+                    )
+                    
+                    # Disable bobbing and rotation until fully broken
+                    sprite.bob_amount = 0
+                    sprite.rotation = 0
+                    
+                    self.fragment_sprites.add(sprite)
+            
+            # Store the surface for reuse
+            self.broken_surface = temp_surface
+        
+        # Draw the base hex first
+        pygame.draw.polygon(screen, self.color, self.vertices)
+        
+        # Create a mask surface for clipping the cracks to the hex boundary
+        hex_bounds = self._get_hex_bounds()
+        mask_width = int(hex_bounds[2] - hex_bounds[0] + 10)  # Add some padding
+        mask_height = int(hex_bounds[3] - hex_bounds[1] + 10)
+        
+        # Create a temporary surface for drawing the cracks with clipping
+        crack_surface = pygame.Surface((mask_width, mask_height), pygame.SRCALPHA)
+        
+        # Draw the hex shape as a mask (fully opaque)
+        local_vertices = [(x - hex_bounds[0] + 5, y - hex_bounds[1] + 5) for x, y in self.vertices]
+        pygame.draw.polygon(crack_surface, (255, 255, 255, 255), local_vertices)
+        
+        # Create a mask from the hex shape
+        hex_mask = pygame.mask.from_surface(crack_surface)
+        
+        # Clear the surface for drawing the cracks
+        crack_surface.fill((0, 0, 0, 0))
+        
+        # Draw cracks with increasing width - use the water BASE_COLOR to match the water
+        crack_width = 1 + 9 * t
+        for crack in self.cracks:
+            if len(crack.points) < 2:
+                continue
+                
+            # Adjust crack points to the local surface coordinates
+            local_points = [(p[0] - hex_bounds[0] + 5, p[1] - hex_bounds[1] + 5) for p in crack.points]
+            
+            # Draw the crack on the temporary surface
+            pygame.draw.lines(crack_surface, water.BASE_COLOR, False, local_points, int(crack_width))
+        
+        # Apply the mask to the crack surface (only keep pixels where the mask is set)
+        crack_surface_array = pygame.surfarray.pixels_alpha(crack_surface)
+        mask_array = hex_mask.to_surface(unsetcolor=(0, 0, 0, 0), setcolor=(0, 0, 0, 255))
+        mask_alpha = pygame.surfarray.array_alpha(mask_array)
+        
+        # Multiply the alpha channels to clip the cracks to the hex shape
+        crack_surface_array[:] = numpy.minimum(crack_surface_array, mask_alpha)
+        del crack_surface_array  # Release the surface lock
+        
+        # Blit the crack surface onto the screen
+        screen.blit(crack_surface, (hex_bounds[0] - 5, hex_bounds[1] - 5))
+        
+        # Draw the water underneath with a separate surface for transparency
+        # Start showing water earlier in the animation
+        if t > 0.2:  # Start showing water earlier (was 0.3)
+            water_alpha = int(220 * ((t - 0.2) / 0.8))  # Scale from 0 to 220 alpha, start earlier
+            
+            # Create a surface just for this hex, not the whole screen
+            hex_bounds = self._get_hex_bounds()
+            width = int(hex_bounds[2] - hex_bounds[0] + 10)  # Add some padding
+            height = int(hex_bounds[3] - hex_bounds[1] + 10)
+            
+            # Create water surface with alpha
+            water_surface = pygame.Surface((width, height), pygame.SRCALPHA)
+            
+            # Adjust vertices to the local surface coordinates
+            local_vertices = [(x - hex_bounds[0] + 5, y - hex_bounds[1] + 5) for x, y in self.vertices]
+            
+            # Draw water with alpha
+            water_color_with_alpha = (*water.BASE_COLOR, water_alpha)
+            pygame.draw.polygon(water_surface, water_color_with_alpha, local_vertices)
+            
+            # Blit the water surface onto the screen at the correct position
+            screen.blit(water_surface, (hex_bounds[0] - 5, hex_bounds[1] - 5))
+        
+        # Update fragment positions based on transition progress
+        for i, sprite in enumerate(self.fragment_sprites):
+            if i < len(self.original_fragment_positions):
+                original_pos = self.original_fragment_positions[i]
+                
+                # Calculate vector from center to fragment
+                dx = original_pos[0] - self.center[0]
+                dy = original_pos[1] - self.center[1]
+                
+                # Scale the movement based on transition progress
+                # This creates a "pushing outward" effect - increase movement amount
+                move_scale = t * 0.3  # Increased movement to 30% of the distance (was 0.2)
+                
+                # Update sprite position
+                sprite.offset_x = dx * move_scale
+                sprite.offset_y = dy * move_scale
+                
+                # Update sprite rect
+                sprite.rect.x = int(original_pos[0] - sprite.rect.width / 2 + sprite.offset_x)
+                sprite.rect.y = int(original_pos[1] - sprite.rect.height / 2 + sprite.offset_y)
+                
+                # Gradually increase rotation and bobbing as transition progresses
+                # Start bobbing earlier in the animation
+                if t > 0.6:  # Start bobbing earlier (was 0.7)
+                    bob_factor = (t - 0.6) / 0.4  # Scale from 0 to 1 in the last 40% of the transition
+                    sprite.bob_amount = sprite.bob_amount * (1 - bob_factor) + (random.uniform(0.3, 0.8) * bob_factor)
+                    sprite.rotation = sprite.rotation * (1 - bob_factor) + (random.uniform(-0.05, 0.05) * bob_factor)
+        
+        # Draw the fragments
+        self.fragment_sprites.draw(screen)
+    
+    def _get_hex_bounds(self) -> Tuple[float, float, float, float]:
+        """Get the bounding box of the hex.
+        
+        Returns:
+            Tuple of (min_x, min_y, max_x, max_y)
+        """
+        min_x = min(v[0] for v in self.vertices)
+        min_y = min(v[1] for v in self.vertices)
+        max_x = max(v[0] for v in self.vertices)
+        max_y = max(v[1] for v in self.vertices)
+        return (min_x, min_y, max_x, max_y)
+    
     def draw(self, screen: pygame.Surface, font: pygame.font.Font, current_time: float, non_broken_hexes: List['Hex'] = None) -> None:
         """Draw the hex tile based on its current state.
         
@@ -824,5 +1028,17 @@ class Hex:
             self._draw_solid(screen, font)
         elif self.state == HexState.CRACKED:
             self._draw_cracked(screen, font)
+        elif self.state == HexState.BREAKING:
+            # Update transition progress
+            elapsed = current_time - self.transition_start_time
+            self.transition_progress = min(1.0, elapsed / self.transition_duration)
+            
+            # Draw the breaking animation
+            self._draw_breaking(screen, font, current_time, non_broken_hexes)
+            
+            # Check if transition is complete
+            if self.transition_progress >= 1.0:
+                self.state = HexState.BROKEN
+                self.break_time = current_time
         elif self.state == HexState.BROKEN:
             self._draw_broken(screen, current_time, non_broken_hexes) 
