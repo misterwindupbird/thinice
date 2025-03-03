@@ -6,10 +6,11 @@ import pygame
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 import sys
+import random
 
 from .hex import Hex
 from .hex_state import HexState
-from ..config.settings import display, hex_grid
+from ..config.settings import display, hex_grid, land
 
 class GameRestartHandler(FileSystemEventHandler):
     """File system event handler for game auto-restart."""
@@ -85,6 +86,12 @@ class Game:
         self.hexes = [[None for _ in range(hex_grid.GRID_HEIGHT)] 
                      for _ in range(hex_grid.GRID_WIDTH)]
         
+        # Create a list of all possible hex positions
+        all_positions = [(x, y) for x in range(hex_grid.GRID_WIDTH) for y in range(hex_grid.GRID_HEIGHT)]
+
+        # Randomly select 10 positions for LAND hexes
+        land_positions = random.sample(all_positions, 10)
+
         for x in range(hex_grid.GRID_WIDTH):
             for y in range(hex_grid.GRID_HEIGHT):
                 # Calculate center position
@@ -93,7 +100,20 @@ class Game:
                 if x % 2:  # Offset odd columns
                     center_y += spacing_y // 2
                 
-                self.hexes[x][y] = Hex(center_x, center_y, x, y)
+                # Determine if this should be a LAND hex
+                if (x, y) in land_positions:
+                    # Random shades of grassy green
+                    base_r, base_g, base_b = land.BASE_COLOR
+                    color_variation = land.COLOR_VARIATION
+                    r = min(255, max(0, base_r + random.randint(-color_variation, color_variation)))
+                    g = min(255, max(0, base_g + random.randint(-color_variation, color_variation)))
+                    b = min(255, max(0, base_b + random.randint(-color_variation, color_variation)))
+                    color = (r, g, b)
+                    print(f"Creating LAND hex at ({x}, {y}) with color: {color}")
+                    self.hexes[x][y] = Hex(center_x, center_y, x, y, color=color, state=HexState.LAND)
+                else:
+                    # Create a regular hex
+                    self.hexes[x][y] = Hex(center_x, center_y, x, y)
     
     def get_hex_neighbors(self, hex: Hex) -> List[Hex]:
         """Get list of neighboring hex tiles.
@@ -223,4 +243,7 @@ class Game:
                     # Pass non-broken hexes for collision detection
                     hex.draw(self.screen, self.font, current_time, non_broken_hexes)
                 else:
-                    hex.draw(self.screen, self.font, current_time) 
+                    hex.draw(self.screen, self.font, current_time)
+                    # Add debugging output for drawing LAND hexes
+                    if hex.state == HexState.LAND:
+                        print(f"Drawing LAND hex at ({hex.grid_x}, {hex.grid_y}) with color: {hex.color}") 

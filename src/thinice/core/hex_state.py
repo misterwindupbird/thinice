@@ -9,6 +9,7 @@ class HexState(Enum):
     CRACKED = auto()   # Has cracks but not broken
     BREAKING = auto()  # In the process of breaking (transition animation)
     BROKEN = auto()    # Completely broken
+    LAND = auto()      # Represents land hexes
     
     def __str__(self) -> str:
         """Return a human-readable string representation."""

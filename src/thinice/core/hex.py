@@ -306,7 +306,7 @@ class IceParticle:
 class Hex:
     """Represents a hexagonal tile in the game grid."""
     
-    def __init__(self, x: float, y: float, grid_x: int, grid_y: int):
+    def __init__(self, x: float, y: float, grid_x: int, grid_y: int, color: Tuple[int, int, int] = None, state: HexState = HexState.SOLID):
         """Initialize a new hex tile.
         
         Args:
@@ -314,15 +314,17 @@ class Hex:
             y: Center y coordinate
             grid_x: Grid column index
             grid_y: Grid row index
+            color: Initial color of the hex
+            state: Initial state of the hex
         """
         self.center = (x, y)
         self.grid_x = grid_x
         self.grid_y = grid_y
         self.vertices = calculate_hex_vertices(self.center, hex_grid.RADIUS)
         self.edge_points = calculate_edge_points(self.vertices)
-        self.state = HexState.SOLID
+        self.state = state
         self.cracks: List[Crack] = []
-        self._init_color()
+        self.color = color if color else self._init_color()
         
         # For broken ice fragments
         self.ice_fragments = []
@@ -340,7 +342,7 @@ class Hex:
         # Ice particles for breaking effect
         self.particles = []
         
-    def _init_color(self) -> None:
+    def _init_color(self) -> Tuple[int, int, int]:
         """Initialize the color of the hex tile with slight variations."""
         # Base color is white with slight variations
         base_r, base_g, base_b = 255, 255, 255
@@ -349,7 +351,7 @@ class Hex:
         grey_var = random.randint(-10, 0)  # Slight grey variation
         blue_var = random.randint(-5, 0)   # Slight blue tint
         
-        self.color = (
+        return (
             min(255, max(0, base_r + grey_var)),
             min(255, max(0, base_g + grey_var)),
             min(255, max(0, base_b + grey_var + blue_var))
@@ -486,8 +488,6 @@ class Hex:
         if self.state != HexState.SOLID:
             return
             
-        print(f"DEBUG: Starting crack() for hex ({self.grid_x}, {self.grid_y}), with vertices {self.vertices}")
-
         # Change to CRACKING state instead of directly to CRACKED
         self.state = HexState.CRACKING
         self.transition_start_time = pygame.time.get_ticks() / 1000.0  # Current time in seconds
@@ -506,24 +506,18 @@ class Hex:
             if neighbor.state != HexState.CRACKED:
                 continue
                 
-            print(f"DEBUG: Neighbor at ({neighbor.grid_x}, {neighbor.grid_y}) is cracked")
             edge_index = self.get_shared_edge_index(neighbor)
-            print(f"DEBUG: My edge index: {edge_index}")
             if edge_index == -1:
                 continue
                 
             shared_point = self.edge_points[edge_index]
-            print(f"DEBUG: Shared point: {shared_point}")
             # Ensure neighbor has connecting crack
             if not neighbor.has_crack_to_point(shared_point):
-                print(f"DEBUG: Neighbor does not have crack to point {shared_point}")
                 # Store this crack to be added during animation
                 self.pending_cracks.append(("neighbor", neighbor, shared_point))
-                print(f"DEBUG: Added neighbor crack to point {shared_point}, there are now {len(self.pending_cracks)} pending cracks")
             
             # Store our connecting crack for animation
             self.pending_cracks.append(("self", self, shared_point))
-            print(f"DEBUG: Added self crack to point {shared_point}, there are now {len(self.pending_cracks)} pending cracks")
 
         # Add minimum number of cracks - store for animation
         num_cracks = random.randint(crack_config.MIN_CRACKS, crack_config.MAX_CRACKS)
@@ -546,7 +540,6 @@ class Hex:
         while len(self.pending_cracks) < num_cracks and available_edges:
             edge_index = available_edges.pop()
             self.pending_cracks.append(("self", self, self.edge_points[edge_index]))
-            print(f"DEBUG: Added self crack to edge {edge_index}, point {self.edge_points[edge_index]}, there are now {len(self.pending_cracks)} pending cracks")
         
         # Pre-calculate secondary cracks for animation
         # We'll store them but only show them in the second half of the animation
@@ -614,17 +607,12 @@ class Hex:
                 self.pending_secondary_cracks.append(((point1_x, point1_y), (point2_x, point2_y), mid_x, mid_y))
     
     def break_ice(self) -> None:
-        """Break the ice by adding the minimum necessary cracks.
-        Transitions to the BREAKING state for animation.
-        """
+        """Break the ice if the hex is in a cracked state."""
         if self.state != HexState.CRACKED:
             return
-            
-        print(f"Breaking ice at ({self.grid_x}, {self.grid_y})")
         
         # Add edge cracks to ensure ice can detach from neighboring hexes
         self._add_edge_cracks()
-        print(f"Total cracks after adding edge cracks: {len(self.cracks)}")
         
         # Transition to BREAKING state
         self.state = HexState.BREAKING
@@ -712,8 +700,6 @@ class Hex:
     
     def _add_edge_cracks(self) -> None:
         """Add cracks along the perimeter of the hex to detach fragments."""
-        print("Adding edge cracks")
-        
         # Add cracks along the edges (between vertices)
         for i in range(6):
             v1 = self.vertices[i]
@@ -761,8 +747,6 @@ class Hex:
                     new_crack = Crack(nearest_point, is_secondary=True)
                     new_crack.extend_to(edge_point, 2)
                     self.cracks.append(new_crack)
-        
-        print(f"Total cracks after adding edge cracks: {len(self.cracks)}")
     
     def _find_ice_fragments(self) -> None:
         """Find ice fragments based on existing crack patterns and assign random colors."""
@@ -800,9 +784,6 @@ class Hex:
         
         # Draw cracks on the grid (set cells to False)
         for crack in self.cracks:
-            if len(crack.points) < 2:
-                continue
-                
             for i in range(len(crack.points) - 1):
                 p1 = crack.points[i]
                 p2 = crack.points[i + 1]
@@ -1341,6 +1322,7 @@ class Hex:
     
     def _draw_solid(self, screen: pygame.Surface, font: pygame.font.Font) -> None:
         """Draw the solid state."""
+
         pygame.draw.polygon(screen, self.color, self.vertices)
         # Border removed
         text = font.render(f"({self.grid_x},{self.grid_y})", True, hex_grid.TEXT_COLOR)
@@ -1618,6 +1600,13 @@ class Hex:
         max_y = max(v[1] for v in self.vertices)
         return (min_x, min_y, max_x, max_y)
     
+    def _draw_land(self, screen: pygame.Surface, font: pygame.font.Font) -> None:
+        """Draw the land state."""
+        pygame.draw.polygon(screen, self.color, self.vertices)
+        text = font.render(f"({self.grid_x},{self.grid_y})", True, hex_grid.TEXT_COLOR)
+        text_rect = text.get_rect(center=self.center)
+        screen.blit(text, text_rect)
+    
     def draw(self, screen: pygame.Surface, font: pygame.font.Font, current_time: float, non_broken_hexes: List['Hex'] = None) -> None:
         """Draw the hex tile based on its current state.
         
@@ -1656,3 +1645,5 @@ class Hex:
                 self.state = HexState.BROKEN
         elif self.state == HexState.BROKEN:
             self._draw_broken(screen, current_time, non_broken_hexes) 
+        elif self.state == HexState.LAND:
+            self._draw_land(screen, font)

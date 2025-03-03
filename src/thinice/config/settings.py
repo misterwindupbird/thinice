@@ -53,9 +53,16 @@ class AnimationConfig:
     CRACKING_DURATION: float = 0.4
     ENABLE_PARTICLES: bool = False  # Disable particles by default
 
+@dataclass
+class LandConfig:
+    """Land hex configuration."""
+    BASE_COLOR: Tuple[int, int, int] = (34, 139, 34)  # ForestGreen
+    COLOR_VARIATION: int = 20  # Variation in green shades
+
 # Create global instances
 display = DisplayConfig()
 hex_grid = HexConfig()
 crack = CrackConfig()
 water = WaterConfig()
-animation = AnimationConfig() 
+animation = AnimationConfig()
+land = LandConfig() 
