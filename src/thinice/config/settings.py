@@ -40,6 +40,7 @@ class WaterConfig:
     BASE_COLOR: Tuple[int, int, int] = (0, 70, 100)
     COLOR_VARIATION: int = 15
     RIPPLE_COLOR: Tuple[int, int, int] = (100, 200, 255)
+    CRACK_COLOR: Tuple[int, int, int] = (70, 150, 200)
 
 @dataclass
 class AnimationConfig:

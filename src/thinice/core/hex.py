@@ -592,15 +592,13 @@ class Hex:
         offset_x = surface_size // 2
         offset_y = surface_size // 2
         
-        # Draw base hex 
-        adjusted_vertices = [(x - self.center[0] + offset_x, y - self.center[1] + offset_y) 
-                            for x, y in self.vertices]
-        
-        # Define colors
+        # Get water color from settings
         base_color = self.color
-        water_color = (10, 30, 40)  # Dark blue-green for water
+        water_crack_color = water.CRACK_COLOR  # Use the color from settings
         
         # Draw the base ice
+        adjusted_vertices = [(x - self.center[0] + offset_x, y - self.center[1] + offset_y) 
+                            for x, y in self.vertices]
         pygame.draw.polygon(self.broken_surface, base_color, adjusted_vertices)
         
         # Generate the fragments from cracks if not already done
@@ -629,7 +627,7 @@ class Hex:
             # Draw fragment
             pygame.draw.polygon(self.broken_surface, fragment_color, adjusted_points)
         
-        # Draw widened cracks with water color
+        # Draw widened cracks with ONLY water color
         for crack in self.cracks:
             # Skip invalid cracks
             if len(crack.points) < 2:
@@ -639,11 +637,10 @@ class Hex:
             adjusted_points = [(p[0] - self.center[0] + offset_x, p[1] - self.center[1] + offset_y) 
                               for p in crack.points]
                               
-            # Draw water visible through the crack
-            pygame.draw.lines(self.broken_surface, water_color, False, adjusted_points, 3)
+            # Draw water through cracks - using ONLY water color
+            pygame.draw.lines(self.broken_surface, water_crack_color, False, adjusted_points, 10)
         
-        # Draw outline
-        pygame.draw.polygon(self.broken_surface, (255, 255, 255), adjusted_vertices, 1)
+        # No hex outline - removed
         
         # Draw cached surface
         screen.blit(
@@ -653,16 +650,20 @@ class Hex:
         )
     
     def _draw_cracked(self, screen: pygame.Surface, font: pygame.font.Font) -> None:
-        """Draw the cracked state."""
+        """Draw the cracked state with thin water-colored hairlines."""
         # Draw base hex
         pygame.draw.polygon(screen, self.color, self.vertices)
         
-        # Draw cracks
+        # Draw cracks as thin hairlines with water color
         for crack in self.cracks:
-            crack.draw(screen)
+            # Draw thinner lines with water color instead of using crack.draw()
+            if len(crack.points) < 2:
+                continue
+                
+            # Use water color for hairline cracks
+            pygame.draw.lines(screen, water.CRACK_COLOR, False, crack.points, 1)
         
-        # Draw outline and coordinates
-        pygame.draw.polygon(screen, hex_grid.LINE_COLOR, self.vertices, 1)
+        # Draw coordinates only (no outline)
         text = font.render(f"({self.grid_x},{self.grid_y})", True, hex_grid.TEXT_COLOR)
         text_rect = text.get_rect(center=self.center)
         screen.blit(text, text_rect)
@@ -677,7 +678,7 @@ class Hex:
     def _draw_solid(self, screen: pygame.Surface, font: pygame.font.Font) -> None:
         """Draw the solid state."""
         pygame.draw.polygon(screen, self.color, self.vertices)
-        pygame.draw.polygon(screen, hex_grid.LINE_COLOR, self.vertices, 1)
+        # Border removed
         text = font.render(f"({self.grid_x},{self.grid_y})", True, hex_grid.TEXT_COLOR)
         text_rect = text.get_rect(center=self.center)
         screen.blit(text, text_rect)
