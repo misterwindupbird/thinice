@@ -2,7 +2,7 @@
 import random
 import math
 import pygame
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Dict, Set
 
 from .hex_state import HexState
 from .crack import Crack
@@ -14,6 +14,129 @@ from ..utils.geometry import (
     point_in_hex
 )
 
+
+class IceFragment(pygame.sprite.Sprite):
+    """Represents a floating ice fragment that can be animated."""
+    
+    def __init__(self, points: List[Tuple[float, float]], color: Tuple[int, int, int], 
+                 center: Tuple[float, float], hex_center: Tuple[float, float]):
+        """Initialize a new ice fragment.
+        
+        Args:
+            points: List of points defining the fragment polygon
+            color: RGB color of the fragment
+            center: Center point of the fragment
+            hex_center: Center point of the parent hex
+        """
+        super().__init__()
+        
+        # Store original points and properties
+        self.original_points = points.copy()
+        self.color = color
+        self.center = center
+        self.hex_center = hex_center
+        
+        # Calculate bounding box for the sprite
+        min_x = min(p[0] for p in points)
+        max_x = max(p[0] for p in points)
+        min_y = min(p[1] for p in points)
+        max_y = max(p[1] for p in points)
+        
+        # Create a surface for the fragment
+        width = max(1, int(max_x - min_x + 4))  # Add padding
+        height = max(1, int(max_y - min_y + 4))
+        self.image = pygame.Surface((width, height), pygame.SRCALPHA)
+        
+        # Adjust points to the surface coordinates
+        self.surface_points = [(p[0] - min_x + 2, p[1] - min_y + 2) for p in points]
+        
+        # Draw the fragment on the surface
+        if len(self.surface_points) >= 3:
+            pygame.draw.polygon(self.image, self.color, self.surface_points)
+            pygame.draw.polygon(self.image, (200, 220, 230), self.surface_points, 1)  # Outline
+        
+        # Set the sprite's rectangle
+        self.rect = self.image.get_rect()
+        self.rect.x = int(min_x)
+        self.rect.y = int(min_y)
+        
+        # Animation properties
+        self.dx = random.uniform(-0.3, 0.3)
+        self.dy = random.uniform(-0.3, 0.3)
+        self.rotation = random.uniform(-0.05, 0.05)
+        self.bob_phase = random.random() * 2 * math.pi
+        self.bob_speed = random.uniform(0.5, 1.5)
+        self.bob_amount = random.uniform(0.3, 0.8)
+        
+        # Current state
+        self.angle = 0
+        self.offset_x = 0
+        self.offset_y = 0
+        self.creation_time = pygame.time.get_ticks() / 1000.0
+    
+    def update(self, current_time: float) -> None:
+        """Update the fragment's position and rotation.
+        
+        Args:
+            current_time: Current game time in seconds
+        """
+        # Calculate time since creation
+        time_since_creation = current_time - self.creation_time
+        
+        # Calculate drift (limited to prevent fragments from drifting too far)
+        max_drift = 15  # Maximum drift distance
+        self.offset_x = min(max_drift, self.dx * time_since_creation)
+        self.offset_y = min(max_drift, self.dy * time_since_creation)
+        
+        # Add bobbing motion
+        bob_y = math.sin(current_time * self.bob_speed + self.bob_phase) * self.bob_amount
+        self.offset_y += bob_y
+        
+        # Update rotation
+        max_rotation = math.pi / 6  # 30 degrees
+        self.angle = min(max_rotation, self.rotation * time_since_creation)
+        
+        # Update the sprite's position
+        self.rect.x = int(self.center[0] - self.rect.width / 2 + self.offset_x)
+        self.rect.y = int(self.center[1] - self.rect.height / 2 + self.offset_y)
+        
+        # If we need to update the image due to rotation
+        if abs(self.angle) > 0.01:
+            self._update_rotated_image()
+    
+    def _update_rotated_image(self) -> None:
+        """Update the sprite's image with the current rotation."""
+        # Create a new surface for the rotated fragment
+        width = self.image.get_width()
+        height = self.image.get_height()
+        
+        # Create a new surface
+        new_surface = pygame.Surface((width, height), pygame.SRCALPHA)
+        
+        # Rotate the points around the center of the surface
+        center_x = width / 2
+        center_y = height / 2
+        
+        rotated_points = []
+        for point in self.surface_points:
+            # Calculate point relative to center
+            rel_x = point[0] - center_x
+            rel_y = point[1] - center_y
+            
+            # Apply rotation
+            rot_x = rel_x * math.cos(self.angle) - rel_y * math.sin(self.angle)
+            rot_y = rel_x * math.sin(self.angle) + rel_y * math.cos(self.angle)
+            
+            # Translate back
+            rotated_points.append((rot_x + center_x, rot_y + center_y))
+        
+        # Draw the rotated fragment
+        if len(rotated_points) >= 3:
+            pygame.draw.polygon(new_surface, self.color, rotated_points)
+            pygame.draw.polygon(new_surface, (200, 220, 230), rotated_points, 1)  # Outline
+        
+        # Update the image
+        self.image = new_surface
 
 class Hex:
     """Represents a hexagonal tile in the game grid."""
@@ -27,23 +150,21 @@ class Hex:
             grid_x: Grid column index
             grid_y: Grid row index
         """
+        self.center = (x, y)
         self.grid_x = grid_x
         self.grid_y = grid_y
-        self.center: Point = (x, y)
-        
-        # Calculate vertices and edge points
         self.vertices = calculate_hex_vertices(self.center, hex_grid.RADIUS)
         self.edge_points = calculate_edge_points(self.vertices)
-        
-        # Initialize state and visual properties
         self.state = HexState.SOLID
+        self.cracks: List[Crack] = []
         self._init_color()
         
-        # Initialize components
-        self.cracks: List[Crack] = []
-        
-        # Cached surfaces
-        self.broken_surface: Optional[pygame.Surface] = None
+        # For broken ice fragments
+        self.ice_fragments = []
+        self.fragment_colors = []
+        self.broken_surface = None
+        self.fragment_sprites = pygame.sprite.Group()
+        self.break_time = 0
         
     def _init_color(self) -> None:
         """Initialize the hex color with slight random variations."""
@@ -243,9 +364,13 @@ class Hex:
         
         # Transition to BROKEN state
         self.state = HexState.BROKEN
+        self.break_time = pygame.time.get_ticks() / 1000.0
         
         # Clear cached surfaces
         self.broken_surface = None
+        
+        # Clear any existing fragment sprites
+        self.fragment_sprites.empty()
     
     def _add_edge_cracks(self) -> None:
         """Add cracks along the perimeter of the hex to detach fragments."""
@@ -301,50 +426,332 @@ class Hex:
         
         print(f"Total cracks after adding edge cracks: {len(self.cracks)}")
     
-    def _draw_broken(self, screen: pygame.Surface) -> None:
-        """Draw the broken state with widened cracks showing water beneath."""
-        # If we have a cached surface, use it
-        if self.broken_surface is not None:
-            screen.blit(
-                self.broken_surface,
-                (self.center[0] - hex_grid.RADIUS * 1.5,
-                 self.center[1] - hex_grid.RADIUS * 1.5)
-            )
-            return
-            
-        # Create a cached surface for better performance
-        surface_size = int(hex_grid.RADIUS * 3)
-        self.broken_surface = pygame.Surface((surface_size, surface_size), pygame.SRCALPHA)
+    def _find_ice_fragments(self) -> None:
+        """Find ice fragments based on existing crack patterns and assign random colors."""
+        # Use a flood fill approach to identify contiguous regions
+        # First, create a grid representation of the hex
+        grid_size = 50  # Resolution of the grid
+        grid = [[False for _ in range(grid_size)] for _ in range(grid_size)]
         
-        # Offset for drawing on the surface
-        offset_x = surface_size // 2
-        offset_y = surface_size // 2
+        # Calculate bounds for mapping to grid
+        min_x = min(v[0] for v in self.vertices)
+        max_x = max(v[0] for v in self.vertices)
+        min_y = min(v[1] for v in self.vertices)
+        max_y = max(v[1] for v in self.vertices)
         
-        # Draw the base ice 
-        adjusted_vertices = [(x - self.center[0] + offset_x, y - self.center[1] + offset_y) 
-                            for x, y in self.vertices]
-        pygame.draw.polygon(self.broken_surface, self.color, adjusted_vertices)
+        # Function to convert world coordinates to grid coordinates
+        def world_to_grid(x, y):
+            grid_x = int((x - min_x) / (max_x - min_x) * (grid_size - 1))
+            grid_y = int((y - min_y) / (max_y - min_y) * (grid_size - 1))
+            return max(0, min(grid_size - 1, grid_x)), max(0, min(grid_size - 1, grid_y))
         
-        # Draw widened cracks with water color
-        water_crack_color = water.CRACK_COLOR  # Use the color from settings
+        # Function to convert grid coordinates to world coordinates
+        def grid_to_world(grid_x, grid_y):
+            x = min_x + (grid_x / (grid_size - 1)) * (max_x - min_x)
+            y = min_y + (grid_y / (grid_size - 1)) * (max_y - min_y)
+            return x, y
+        
+        # Fill the grid with the hex shape
+        for y in range(grid_size):
+            for x in range(grid_size):
+                world_x, world_y = grid_to_world(x, y)
+                if self._point_in_hex((world_x, world_y)):
+                    grid[y][x] = True
+        
+        # Draw cracks on the grid (set cells to False)
         for crack in self.cracks:
-            # Skip invalid cracks
             if len(crack.points) < 2:
                 continue
                 
-            # Draw widened cracks showing water underneath
-            adjusted_points = [(p[0] - self.center[0] + offset_x, p[1] - self.center[1] + offset_y) 
-                            for p in crack.points]
-                            
-            # Draw water through cracks - using water color
-            pygame.draw.lines(self.broken_surface, water_crack_color, False, adjusted_points, 10)
+            for i in range(len(crack.points) - 1):
+                p1 = crack.points[i]
+                p2 = crack.points[i + 1]
+                
+                # Draw a thick line for the crack
+                for t in range(101):  # 101 points for smooth line
+                    t_val = t / 100.0
+                    x = p1[0] * (1 - t_val) + p2[0] * t_val
+                    y = p1[1] * (1 - t_val) + p2[1] * t_val
+                    
+                    # Make the crack thicker
+                    for dx in range(-2, 3):
+                        for dy in range(-2, 3):
+                            if dx*dx + dy*dy <= 4:  # Circular thickness
+                                gx, gy = world_to_grid(x + dx, y + dy)
+                                if 0 <= gx < grid_size and 0 <= gy < grid_size:
+                                    grid[gy][gx] = False
         
-        # Draw cached surface
-        screen.blit(
-            self.broken_surface,
-            (self.center[0] - hex_grid.RADIUS * 1.5,
-             self.center[1] - hex_grid.RADIUS * 1.5)
-        )
+        # Use flood fill to identify contiguous regions
+        visited = [[False for _ in range(grid_size)] for _ in range(grid_size)]
+        fragments = []
+        
+        for y in range(grid_size):
+            for x in range(grid_size):
+                if grid[y][x] and not visited[y][x]:
+                    # Start a new fragment
+                    fragment_cells = []
+                    queue = [(x, y)]
+                    visited[y][x] = True
+                    
+                    while queue:
+                        cx, cy = queue.pop(0)
+                        fragment_cells.append((cx, cy))
+                        
+                        # Check neighbors
+                        for dx, dy in [(0, 1), (1, 0), (0, -1), (-1, 0)]:
+                            nx, ny = cx + dx, cy + dy
+                            if (0 <= nx < grid_size and 0 <= ny < grid_size and 
+                                grid[ny][nx] and not visited[ny][nx]):
+                                queue.append((nx, ny))
+                                visited[ny][nx] = True
+                    
+                    # Convert cells to world coordinates and create a polygon
+                    if len(fragment_cells) > 5:  # Ignore very small fragments
+                        # Use convex hull to create a clean polygon
+                        world_points = [grid_to_world(cx, cy) for cx, cy in fragment_cells]
+                        hull = self._convex_hull(world_points)
+                        
+                        if len(hull) >= 3:  # Need at least 3 points for a polygon
+                            fragments.append(hull)
+        
+        # Store fragments and generate distinct colors for each
+        self.ice_fragments = fragments
+        self.fragment_colors = []
+        
+        # Generate distinct colors for each fragment
+        distinct_colors = [
+            (200, 230, 255),  # Light blue
+            (150, 200, 255),  # Sky blue
+            (100, 170, 255),  # Medium blue
+            (80, 140, 230),   # Blue
+            (60, 120, 200),   # Darker blue
+            (180, 220, 255),  # Very light blue
+            (120, 190, 240),  # Pale blue
+            (90, 160, 220),   # Steel blue
+            (70, 130, 210),   # Royal blue
+            (50, 110, 190)    # Navy blue
+        ]
+        
+        for i in range(len(fragments)):
+            # Use a predefined color with slight variation
+            base_color = distinct_colors[i % len(distinct_colors)]
+            
+            # Add slight variation
+            r = max(0, min(255, base_color[0] + random.randint(-15, 15)))
+            g = max(0, min(255, base_color[1] + random.randint(-15, 15)))
+            b = max(0, min(255, base_color[2] + random.randint(-15, 15)))
+            
+            self.fragment_colors.append((r, g, b))
+    
+    def _convex_hull(self, points):
+        """Compute the convex hull of a set of points using Graham scan."""
+        def cross_product(o, a, b):
+            return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+        
+        if len(points) <= 3:
+            return points
+            
+        # Find the lowest point
+        lowest = min(points, key=lambda p: (p[1], p[0]))
+        
+        # Sort points by polar angle with respect to the lowest point
+        sorted_points = sorted(points, key=lambda p: (
+            math.atan2(p[1] - lowest[1], p[0] - lowest[0]),
+            (p[0] - lowest[0])**2 + (p[1] - lowest[1])**2
+        ))
+        
+        # Build the convex hull
+        hull = [lowest]
+        for p in sorted_points:
+            while len(hull) >= 2 and cross_product(hull[-2], hull[-1], p) <= 0:
+                hull.pop()
+            hull.append(p)
+            
+        return hull
+    
+    def _color_fragments(self, surface, size):
+        """Identify and color ice fragments using flood fill on the rendered surface.
+        
+        Args:
+            surface: The rendered surface with ice and cracks
+            size: Size of the surface
+            
+        Returns:
+            A new surface with colored fragments
+        """
+        # Create a new surface for the result
+        result = pygame.Surface((size, size), pygame.SRCALPHA)
+        result.blit(surface, (0, 0))  # Copy the original surface
+        
+        # Create a mask to track visited pixels
+        visited = [[False for _ in range(size)] for _ in range(size)]
+        
+        # Define colors for fragments
+        fragment_colors = [
+            (200, 230, 255),  # Light blue
+            (150, 200, 255),  # Sky blue
+            (100, 170, 255),  # Medium blue
+            (80, 140, 230),   # Blue
+            (60, 120, 200),   # Darker blue
+            (180, 220, 255),  # Very light blue
+            (120, 190, 240),  # Pale blue
+            (90, 160, 220),   # Steel blue
+            (70, 130, 210),   # Royal blue
+            (50, 110, 190)    # Navy blue
+        ]
+        
+        # Water color for comparison (to avoid coloring water)
+        water_colors = [
+            water.BASE_COLOR,
+            water.CRACK_COLOR
+        ]
+        
+        # Function to check if a color is similar to water
+        def is_water_color(color):
+            if color[3] < 200:  # Check alpha (transparency)
+                return True
+                
+            for wc in water_colors:
+                # Check if color is similar to water color
+                r_diff = abs(color[0] - wc[0])
+                g_diff = abs(color[1] - wc[1])
+                b_diff = abs(color[2] - wc[2])
+                if r_diff + g_diff + b_diff < 60:  # Threshold for similarity
+                    return True
+            return False
+        
+        # Find and color ice fragments
+        fragment_index = 0
+        fragments = []  # Store fragment data for creating sprites
+        
+        for y in range(size):
+            for x in range(size):
+                if visited[y][x]:
+                    continue
+                    
+                # Get pixel color
+                color = surface.get_at((x, y))
+                
+                # Skip water pixels
+                if is_water_color(color):
+                    visited[y][x] = True
+                    continue
+                
+                # Found an ice fragment, flood fill and color it
+                fragment_color = fragment_colors[fragment_index % len(fragment_colors)]
+                fragment_index += 1
+                
+                # Simple flood fill
+                queue = [(x, y)]
+                fragment_pixels = []
+                
+                while queue:
+                    cx, cy = queue.pop(0)
+                    if cx < 0 or cy < 0 or cx >= size or cy >= size or visited[cy][cx]:
+                        continue
+                        
+                    pixel_color = surface.get_at((cx, cy))
+                    if is_water_color(pixel_color):
+                        visited[cy][cx] = True
+                        continue
+                    
+                    # Add to fragment
+                    visited[cy][cx] = True
+                    fragment_pixels.append((cx, cy))
+                    
+                    # Add neighbors to queue
+                    queue.append((cx+1, cy))
+                    queue.append((cx-1, cy))
+                    queue.append((cx, cy+1))
+                    queue.append((cx, cy-1))
+                
+                # Color the fragment if it's large enough
+                if len(fragment_pixels) > 10:
+                    for px, py in fragment_pixels:
+                        result.set_at((px, py), fragment_color)
+                    
+                    # Store fragment data for creating sprites
+                    # Convert pixel coordinates to world coordinates
+                    offset_x = size // 2
+                    offset_y = size // 2
+                    world_pixels = [(self.center[0] + (px - offset_x), 
+                                    self.center[1] + (py - offset_y)) 
+                                   for px, py in fragment_pixels]
+                    
+                    # Calculate fragment center
+                    if world_pixels:
+                        center_x = sum(p[0] for p in world_pixels) / len(world_pixels)
+                        center_y = sum(p[1] for p in world_pixels) / len(world_pixels)
+                        
+                        # Create a convex hull for the fragment
+                        if len(world_pixels) >= 3:
+                            hull = self._convex_hull(world_pixels)
+                            fragments.append({
+                                'points': hull,
+                                'color': fragment_color,
+                                'center': (center_x, center_y)
+                            })
+        
+        # Create sprite objects for each fragment
+        for fragment in fragments:
+            sprite = IceFragment(
+                fragment['points'], 
+                fragment['color'], 
+                fragment['center'],
+                self.center
+            )
+            self.fragment_sprites.add(sprite)
+        
+        return result
+    
+    def _draw_broken(self, screen: pygame.Surface, current_time: float = 0) -> None:
+        """Draw the broken state with widened cracks showing water beneath and colored fragments.
+        
+        Args:
+            screen: Surface to draw on
+            current_time: Current game time in seconds (optional)
+        """
+        # First time setup - create the broken surface and fragment sprites
+        if self.broken_surface is None:
+            # Create a temporary surface for initial rendering
+            surface_size = int(hex_grid.RADIUS * 3)
+            temp_surface = pygame.Surface((surface_size, surface_size), pygame.SRCALPHA)
+            
+            # Offset for drawing on the surface
+            offset_x = surface_size // 2
+            offset_y = surface_size // 2
+            
+            # Draw water underneath (dark blue)
+            adjusted_vertices = [(x - self.center[0] + offset_x, y - self.center[1] + offset_y) 
+                                for x, y in self.vertices]
+            pygame.draw.polygon(temp_surface, water.BASE_COLOR, adjusted_vertices)
+            
+            # Draw the base ice (white)
+            pygame.draw.polygon(temp_surface, self.color, adjusted_vertices)
+            
+            # Draw widened cracks with water color
+            water_crack_color = water.CRACK_COLOR  # Use the color from settings
+            for crack in self.cracks:
+                # Skip invalid cracks
+                if len(crack.points) < 2:
+                    continue
+                    
+                # Draw widened cracks showing water underneath
+                adjusted_points = [(p[0] - self.center[0] + offset_x, p[1] - self.center[1] + offset_y) 
+                                for p in crack.points]
+                                
+                # Draw water through cracks - using water color
+                pygame.draw.lines(temp_surface, water_crack_color, False, adjusted_points, 10)
+            
+            # Now identify and color the fragments using a simple flood fill
+            self.broken_surface = self._color_fragments(temp_surface, surface_size)
+        
+        # Draw the water underneath
+        pygame.draw.polygon(screen, water.BASE_COLOR, self.vertices)
+        
+        # Update and draw the fragment sprites
+        self.fragment_sprites.update(current_time)
+        self.fragment_sprites.draw(screen)
     
     def _draw_cracked(self, screen: pygame.Surface, font: pygame.font.Font) -> None:
         """Draw the cracked state with thin water-colored hairlines."""
@@ -408,7 +815,7 @@ class Hex:
             current_time: Current game time in seconds
         """
         if self.state == HexState.BROKEN:
-            self._draw_broken(screen)
+            self._draw_broken(screen, current_time)
         elif self.state == HexState.CRACKED:
             self._draw_cracked(screen, font)
         else:  # SOLID state
