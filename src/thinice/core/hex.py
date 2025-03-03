@@ -1,11 +1,11 @@
 """Hex tile component for the ice breaking game."""
-from typing import List, Tuple, Optional
 import random
-import math  # Add explicit math import
+import math
 import pygame
+from typing import List, Tuple, Optional
+
 from .hex_state import HexState
 from .crack import Crack
-from .ice_fragment import IceFragment
 from ..config.settings import hex_grid, crack as crack_config, animation, water
 from ..utils.geometry import (
     Point, 
@@ -13,7 +13,6 @@ from ..utils.geometry import (
     calculate_edge_points,
     point_in_hex
 )
-import scipy.spatial
 from ..events import EventType
 
 class Hex:
@@ -42,7 +41,6 @@ class Hex:
         
         # Initialize components
         self.cracks: List[Crack] = []
-        self.ice_fragments: List[IceFragment] = []
         
         # Animation timing
         self.breaking_start_time = 0.0
@@ -149,129 +147,25 @@ class Hex:
                 break
                 
             for crack2 in self.cracks[i+1:]:
-                if (crack1.is_secondary and crack2.is_secondary or
-                    random.random() >= crack_config.SECONDARY_CRACK_CHANCE):
-                    continue
-                    
-                # Find points along each crack for connection
-                points1 = crack1.points[1:-1]
-                points2 = crack2.points[1:-1]
-                if not points1 or not points2:
-                    continue
-                    
-                # Create connecting crack
-                start = random.choice(points1)
-                end = random.choice(points2)
-                new_crack = Crack(start, is_secondary=True)
-                new_crack.extend_to(end, 3)  # Fewer segments for straighter appearance
-                
-                self.cracks.append(new_crack)
-                current_secondary += 1
-                
                 if current_secondary >= crack_config.MAX_SECONDARY_CRACKS:
                     break
-    
-    def _generate_fragments_from_cracks(self) -> None:
-        """Generate ice fragments by directly using cracks as fragment boundaries.
-        This ensures fragments align exactly with the crack patterns."""
-        print("Generating fragments from cracks")
-        
-        # Start with the entire hex as one region
-        regions = [self.vertices]
-        
-        # Use each crack to split regions
-        for crack in self.cracks:
-            # Each crack is a line from center to edge or between other points
-            if len(crack.points) < 2:
-                continue  # Skip invalid cracks
+                    
+                # Only consider primary cracks
+                if crack1.is_secondary or crack2.is_secondary:
+                    continue
+                    
+                # Check if these cracks are not too close
+                p1 = crack1.points[-1]  # End point of crack1
+                p2 = crack2.points[-1]  # End point of crack2
+                distance = ((p1[0] - p2[0])**2 + (p1[1] - p2[1])**2) ** 0.5
                 
-            # For simplicity, use the start and end points of each crack
-            start_point = crack.points[0]
-            end_point = crack.points[-1]
-            
-            # Split all current regions with this crack line
-            new_regions = []
-            for region in regions:
-                # Create two new regions by splitting along the crack line
-                region1 = []
-                region2 = []
-                
-                # Process each edge of the region
-                n = len(region)
-                for i in range(n):
-                    p1 = region[i]
-                    p2 = region[(i + 1) % n]
-                    
-                    # Add p1 to appropriate region(s)
-                    # Check which side of the line p1 is on
-                    side1 = self._point_side(p1, start_point, end_point)
-                    
-                    if side1 >= 0:
-                        region1.append(p1)
-                    if side1 <= 0:
-                        region2.append(p1)
-                    
-                    # Check if edge intersects with crack line
-                    intersection = self._line_intersection(
-                        (p1, p2),
-                        (start_point, end_point)
-                    )
-                    
-                    if intersection:
-                        # Add intersection point to both new regions
-                        region1.append(intersection)
-                        region2.append(intersection)
-                
-                # Only add valid regions (at least 3 points)
-                if len(region1) >= 3:
-                    new_regions.append(region1)
-                if len(region2) >= 3:
-                    new_regions.append(region2)
-            
-            # Update regions list
-            if new_regions:
-                regions = new_regions
-        
-        # Create ice fragments from regions
-        self.ice_fragments = []
-        for region in regions:
-            if len(region) >= 3:
-                area = self._calculate_polygon_area(region)
-                # Skip tiny fragments
-                if area > self._calculate_polygon_area(self.vertices) * 0.01:
-                    fragment = IceFragment(region, self.center, hex_grid.RADIUS)
-                    self.ice_fragments.append(fragment)
-        
-        print(f"Generated {len(self.ice_fragments)} fragments")
-    
-    def _point_side(self, p: Tuple[float, float], line_p1: Tuple[float, float], line_p2: Tuple[float, float]) -> float:
-        """Determine which side of a line a point is on.
-        Returns positive if on one side, negative if on the other, zero if on the line."""
-        return (p[0] - line_p2[0]) * (line_p1[1] - line_p2[1]) - (line_p1[0] - line_p2[0]) * (p[1] - line_p2[1])
-    
-    def _generate_simple_fragments(self) -> None:
-        """Generate simple fragments based on the cracks."""
-        print("Generating simple fragments")
-        
-        # Create triangular fragments from center to adjacent vertices
-        self.ice_fragments = []
-        
-        # For each pair of adjacent vertices, create a triangular fragment
-        for i in range(len(self.vertices)):
-            j = (i + 1) % len(self.vertices)
-            
-            # Create a triangular fragment
-            points = [
-                self.center,
-                self.vertices[i],
-                self.vertices[j]
-            ]
-            
-            # Create the fragment
-            fragment = IceFragment(points, self.center, hex_grid.RADIUS)
-            self.ice_fragments.append(fragment)
-        
-        print(f"Generated {len(self.ice_fragments)} fragments")
+                # Only add a secondary crack if the endpoints are somewhat close but not too close
+                if distance > hex_grid.RADIUS * 0.3 and distance < hex_grid.RADIUS * 0.8:
+                    # Create a new crack between these two points
+                    new_crack = Crack(p1, is_secondary=True)
+                    new_crack.extend_to(p2, 3)  # More segments for better visual
+                    self.cracks.append(new_crack)
+                    current_secondary += 1
     
     def _calculate_polygon_area(self, points: List[Tuple[float, float]]) -> float:
         """Calculate the area of a polygon using the Shoelace formula."""
@@ -494,26 +388,25 @@ class Hex:
         self.add_secondary_cracks()
     
     def break_ice(self) -> None:
-        """Break the ice by adding edge cracks and creating fragments based on crack patterns.
-        
-        This version creates fragments that follow the actual crack patterns and ensures
-        separation from neighboring hexes.
+        """Break the ice by adding the minimum necessary cracks.
+        Transitions to the BROKEN state.
         """
         if self.state != HexState.CRACKED:
             return
             
         print(f"Breaking ice at ({self.grid_x}, {self.grid_y})")
         
-        # Add cracks along edges to detach from neighboring hexes
+        # Add edge cracks to ensure ice can detach from neighboring hexes
         self._add_edge_cracks()
-        
-        # Generate fragments based on crack patterns
-        self._generate_fragments_from_cracks()
+        print(f"Total cracks after adding edge cracks: {len(self.cracks)}")
         
         # Transition to BROKEN state
         self.state = HexState.BROKEN
         
-        # Add breaking sound
+        # Clear cached surfaces
+        self.broken_surface = None
+        
+        # Trigger sound effect
         pygame.event.post(pygame.event.Event(
             EventType.PLAY_SOUND.value, 
             {"sound": "ice_break", "volume": 0.7}
@@ -592,42 +485,13 @@ class Hex:
         offset_x = surface_size // 2
         offset_y = surface_size // 2
         
-        # Get water color from settings
-        base_color = self.color
-        water_crack_color = water.CRACK_COLOR  # Use the color from settings
-        
-        # Draw the base ice
+        # Draw the base ice 
         adjusted_vertices = [(x - self.center[0] + offset_x, y - self.center[1] + offset_y) 
                             for x, y in self.vertices]
-        pygame.draw.polygon(self.broken_surface, base_color, adjusted_vertices)
+        pygame.draw.polygon(self.broken_surface, self.color, adjusted_vertices)
         
-        # Generate the fragments from cracks if not already done
-        if not self.ice_fragments:
-            self._generate_fragments_from_cracks()
-        
-        # Draw fragments with random darkness
-        for fragment in self.ice_fragments:
-            # Adjust fragment points to the surface coordinates
-            points = fragment.get_points()
-            adjusted_points = [(x - self.center[0] + offset_x, y - self.center[1] + offset_y) 
-                              for x, y in points]
-            
-            # Skip if degenerate polygon
-            if len(adjusted_points) < 3:
-                continue
-                
-            # Darken the fragment color by a random amount
-            darkness = random.randint(0, 60)
-            fragment_color = (
-                max(0, self.color[0] - darkness),
-                max(0, self.color[1] - darkness),
-                max(0, self.color[2] - darkness)
-            )
-            
-            # Draw fragment
-            pygame.draw.polygon(self.broken_surface, fragment_color, adjusted_points)
-        
-        # Draw widened cracks with ONLY water color
+        # Draw widened cracks with water color
+        water_crack_color = water.CRACK_COLOR  # Use the color from settings
         for crack in self.cracks:
             # Skip invalid cracks
             if len(crack.points) < 2:
@@ -635,12 +499,10 @@ class Hex:
                 
             # Draw widened cracks showing water underneath
             adjusted_points = [(p[0] - self.center[0] + offset_x, p[1] - self.center[1] + offset_y) 
-                              for p in crack.points]
-                              
-            # Draw water through cracks - using ONLY water color
+                            for p in crack.points]
+                            
+            # Draw water through cracks - using water color
             pygame.draw.lines(self.broken_surface, water_crack_color, False, adjusted_points, 10)
-        
-        # No hex outline - removed
         
         # Draw cached surface
         screen.blit(
