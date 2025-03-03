@@ -1,0 +1,17 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python: Game",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/game.py",
+            "console": "internalConsole",
+            "justMyCode": true,
+            "env": {
+                "SDL_VIDEO_WINDOW_POS": "-1820,100",
+                "PYTHONPATH": "${workspaceFolder}"
+            }
+        }
+    ]
+}
