@@ -236,8 +236,8 @@ class IceParticle:
         # Scale down as it sinks (z-axis effect)
         self.size = self.original_size * (1.0 - self.sink_progress * 0.7)  # Slower size reduction
         
-        # Fade out as it sinks deeper
-        self.alpha = int(255 * (1.0 - self.sink_progress))
+        # Keep alpha at full opacity (255) instead of fading out
+        self.alpha = 255
             
     def draw(self, surface: pygame.Surface, offset_x: float, offset_y: float):
         """Draw the particle on the surface."""
@@ -629,62 +629,64 @@ class Hex:
             center_y = sum(p[1] for p in fragment) / len(fragment)
             self.original_fragment_positions.append((center_x, center_y))
             
-        # Create ice particles along the cracks
+        # Initialize empty particles list
         self.particles = []
         
-        # Create more particles for a more visible effect
-        num_particles_per_unit = 1.0  # Increase density of particles even more
-        
-        for crack in self.cracks:
-            if len(crack.points) < 2:
-                continue
-                
-            # Add particles along each crack
-            for i in range(1, len(crack.points)):
-                p1 = crack.points[i-1]
-                p2 = crack.points[i]
-                
-                # Calculate distance for this segment
-                distance = ((p2[0] - p1[0])**2 + (p2[1] - p1[1])**2)**0.5
-                
-                # Add particles along the line
-                num_particles = int(distance * num_particles_per_unit)
-                for j in range(num_particles):
-                    t = j / num_particles
-                    x = p1[0] + (p2[0] - p1[0]) * t
-                    y = p1[1] + (p2[1] - p1[1]) * t
-                    
-                    # Add some randomness to position
-                    x += random.uniform(-3, 3)
-                    y += random.uniform(-3, 3)
-                    
-                    # Create particle
-                    size = random.uniform(2.5, 5.0)  # Even larger particles for better visibility
-                    
-                    # Use a color between ice and water
-                    r = int(self.color[0] * 0.8 + water.BASE_COLOR[0] * 0.2)
-                    g = int(self.color[1] * 0.8 + water.BASE_COLOR[1] * 0.2)
-                    b = int(self.color[2] * 0.8 + water.BASE_COLOR[2] * 0.2)
-                    
-                    self.particles.append(IceParticle(x, y, size, (r, g, b)))
-                    
-        # Add some additional particles scattered around the hex
-        for _ in range(50):  # Add 50 more particles (increased from 30)
-            # Random position within the hex
-            angle = random.uniform(0, 2 * math.pi)
-            distance = random.uniform(0, hex_grid.RADIUS * 0.8)
-            x = self.center[0] + math.cos(angle) * distance
-            y = self.center[1] + math.sin(angle) * distance
+        # Only create particles if enabled in settings
+        if animation.ENABLE_PARTICLES:
+            # Create more particles for a more visible effect
+            num_particles_per_unit = 1.0  # Increase density of particles even more
             
-            # Create particle
-            size = random.uniform(2.0, 4.5)  # Larger particles
-            
-            # Use a color closer to ice
-            r = int(self.color[0] * 0.9 + water.BASE_COLOR[0] * 0.1)
-            g = int(self.color[1] * 0.9 + water.BASE_COLOR[1] * 0.1)
-            b = int(self.color[2] * 0.9 + water.BASE_COLOR[2] * 0.1)
-            
-            self.particles.append(IceParticle(x, y, size, (r, g, b)))
+            for crack in self.cracks:
+                if len(crack.points) < 2:
+                    continue
+                    
+                # Add particles along each crack
+                for i in range(1, len(crack.points)):
+                    p1 = crack.points[i-1]
+                    p2 = crack.points[i]
+                    
+                    # Calculate distance for this segment
+                    distance = ((p2[0] - p1[0])**2 + (p2[1] - p1[1])**2)**0.5
+                    
+                    # Add particles along the line
+                    num_particles = int(distance * num_particles_per_unit)
+                    for j in range(num_particles):
+                        t = j / num_particles
+                        x = p1[0] + (p2[0] - p1[0]) * t
+                        y = p1[1] + (p2[1] - p1[1]) * t
+                        
+                        # Add some randomness to position
+                        x += random.uniform(-3, 3)
+                        y += random.uniform(-3, 3)
+                        
+                        # Create particle
+                        size = random.uniform(2.5, 5.0)  # Even larger particles for better visibility
+                        
+                        # Use a color between ice and water
+                        r = int(self.color[0] * 0.8 + water.BASE_COLOR[0] * 0.2)
+                        g = int(self.color[1] * 0.8 + water.BASE_COLOR[1] * 0.2)
+                        b = int(self.color[2] * 0.8 + water.BASE_COLOR[2] * 0.2)
+                        
+                        self.particles.append(IceParticle(x, y, size, (r, g, b)))
+                        
+            # Add some additional particles scattered around the hex
+            for _ in range(50):  # Add 50 more particles (increased from 30)
+                # Random position within the hex
+                angle = random.uniform(0, 2 * math.pi)
+                distance = random.uniform(0, hex_grid.RADIUS * 0.8)
+                x = self.center[0] + math.cos(angle) * distance
+                y = self.center[1] + math.sin(angle) * distance
+                
+                # Create particle
+                size = random.uniform(2.0, 4.5)  # Larger particles
+                
+                # Use a color closer to ice
+                r = int(self.color[0] * 0.9 + water.BASE_COLOR[0] * 0.1)
+                g = int(self.color[1] * 0.9 + water.BASE_COLOR[1] * 0.1)
+                b = int(self.color[2] * 0.9 + water.BASE_COLOR[2] * 0.1)
+                
+                self.particles.append(IceParticle(x, y, size, (r, g, b)))
     
     def _add_edge_cracks(self) -> None:
         """Add cracks along the perimeter of the hex to detach fragments."""
@@ -1267,19 +1269,21 @@ class Hex:
         # This makes the start of the animation faster and the end slower
         t = 1 - (1 - self.transition_progress) ** 3  # Cubic ease-out for smoother feel
         
-        # Calculate time delta for particle updates
-        dt = 1/60  # Assume 60 FPS
-        
-        # Update particles
-        for particle in self.particles[:]:
-            particle.update(dt)
-            if not particle.alive:
-                self.particles.remove(particle)
-        
-        # Debug print to verify particles are being created and updated
-        if len(self.particles) > 0 and self.transition_progress < 0.1:
-            print(f"Particles: {len(self.particles)}")
-            print(f"Color type: {type(self.color)}, value: {self.color}")
+        # Only update particles if they're enabled
+        if animation.ENABLE_PARTICLES:
+            # Calculate time delta for particle updates
+            dt = 1/60  # Assume 60 FPS
+            
+            # Update particles
+            for particle in self.particles[:]:
+                particle.update(dt)
+                if not particle.alive:
+                    self.particles.remove(particle)
+            
+            # Debug print to verify particles are being created and updated
+            if len(self.particles) > 0 and self.transition_progress < 0.1:
+                print(f"Particles: {len(self.particles)}")
+                print(f"Color type: {type(self.color)}, value: {self.color}")
         
         if self.broken_surface is None or len(self.fragment_sprites) == 0:
             # First time setup - create the broken surface and fragment sprites
@@ -1363,52 +1367,53 @@ class Hex:
             water_color_with_alpha = (*water.BASE_COLOR, water_alpha)
             pygame.draw.polygon(water_surface, water_color_with_alpha, local_vertices)
         
-        # 2. Create a surface for the particles (middle layer)
+        # 2. Create a surface for the particles (middle layer) - only if particles are enabled
         particle_surface = pygame.Surface((width, height), pygame.SRCALPHA)
         
-        # Create a mask for SOLID/CRACKED hexes to prevent particles from appearing on top of them
-        if non_broken_hexes:
-            # Create a mask surface
-            neighbor_mask_surface = pygame.Surface((width, height), pygame.SRCALPHA)
-            neighbor_mask_surface.fill((0, 0, 0, 0))  # Start with fully transparent
+        if animation.ENABLE_PARTICLES:
+            # Create a mask for SOLID/CRACKED hexes to prevent particles from appearing on top of them
+            if non_broken_hexes:
+                # Create a mask surface
+                neighbor_mask_surface = pygame.Surface((width, height), pygame.SRCALPHA)
+                neighbor_mask_surface.fill((0, 0, 0, 0))  # Start with fully transparent
+                
+                # Draw all non-broken (SOLID/CRACKED) hexes as opaque areas in the mask
+                for hex_tile in non_broken_hexes:
+                    if hex_tile.state in [HexState.SOLID, HexState.CRACKED]:
+                        # Only mask if the hex is close enough to potentially overlap with particles
+                        dx = hex_tile.center[0] - self.center[0]
+                        dy = hex_tile.center[1] - self.center[1]
+                        distance = (dx**2 + dy**2)**0.5
+                        
+                        if distance < hex_grid.RADIUS * 3:  # Only consider nearby hexes
+                            # Draw the hex shape in the mask
+                            mask_vertices = [(x - offset_x, y - offset_y) for x, y in hex_tile.vertices]
+                            pygame.draw.polygon(neighbor_mask_surface, (0, 0, 0, 255), mask_vertices)
             
-            # Draw all non-broken (SOLID/CRACKED) hexes as opaque areas in the mask
-            for hex_tile in non_broken_hexes:
-                if hex_tile.state in [HexState.SOLID, HexState.CRACKED]:
-                    # Only mask if the hex is close enough to potentially overlap with particles
-                    dx = hex_tile.center[0] - self.center[0]
-                    dy = hex_tile.center[1] - self.center[1]
-                    distance = (dx**2 + dy**2)**0.5
-                    
-                    if distance < hex_grid.RADIUS * 3:  # Only consider nearby hexes
-                        # Draw the hex shape in the mask
-                        mask_vertices = [(x - offset_x, y - offset_y) for x, y in hex_tile.vertices]
-                        pygame.draw.polygon(neighbor_mask_surface, (0, 0, 0, 255), mask_vertices)
-        
-        # Draw all particles on the particle surface
-        for particle in self.particles:
-            particle.draw(particle_surface, -offset_x, -offset_y)
-        
-        # Apply the hex mask to the particle surface to keep particles within the hex
-        particle_array = pygame.surfarray.pixels_alpha(particle_surface)
-        hex_mask_array = pygame.surfarray.pixels_alpha(hex_mask_surface)
-        
-        # Only keep particles where the hex mask is set
-        particle_array[:] = numpy.minimum(particle_array, hex_mask_array)
-        
-        # Apply the neighbor mask to the particle surface if we have non-broken hexes
-        if non_broken_hexes:
-            # Convert surfaces to pixel arrays for manipulation
-            neighbor_mask_array = pygame.surfarray.pixels_alpha(neighbor_mask_surface)
+            # Draw all particles on the particle surface
+            for particle in self.particles:
+                particle.draw(particle_surface, -offset_x, -offset_y)
             
-            # Zero out particle alpha where neighbor mask is opaque
-            particle_array[:] = numpy.where(neighbor_mask_array > 0, 0, particle_array)
-        
-        # Clean up to release surface locks
-        del particle_array
-        if non_broken_hexes:
-            del neighbor_mask_array
-        del hex_mask_array
+            # Apply the hex mask to the particle surface to keep particles within the hex
+            particle_array = pygame.surfarray.pixels_alpha(particle_surface)
+            hex_mask_array = pygame.surfarray.pixels_alpha(hex_mask_surface)
+            
+            # Only keep particles where the hex mask is set
+            particle_array[:] = numpy.minimum(particle_array, hex_mask_array)
+            
+            # Apply the neighbor mask to the particle surface if we have non-broken hexes
+            if non_broken_hexes:
+                # Convert surfaces to pixel arrays for manipulation
+                neighbor_mask_array = pygame.surfarray.pixels_alpha(neighbor_mask_surface)
+                
+                # Zero out particle alpha where neighbor mask is opaque
+                particle_array[:] = numpy.where(neighbor_mask_array > 0, 0, particle_array)
+            
+            # Clean up to release surface locks
+            del particle_array
+            if non_broken_hexes:
+                del neighbor_mask_array
+            del hex_mask_array
         
         # 3. Create a surface for the ice (with reduced opacity as it breaks)
         ice_surface = pygame.Surface((width, height), pygame.SRCALPHA)
@@ -1450,8 +1455,9 @@ class Hex:
         # 1. First the water layer
         screen.blit(water_surface, (offset_x, offset_y))
         
-        # 2. Then the particle layer
-        screen.blit(particle_surface, (offset_x, offset_y))
+        # 2. Then the particle layer (only if particles are enabled)
+        if animation.ENABLE_PARTICLES:
+            screen.blit(particle_surface, (offset_x, offset_y))
         
         # 3. Then the ice layer
         screen.blit(ice_surface, (offset_x, offset_y))

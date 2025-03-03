@@ -48,8 +48,9 @@ class WaterConfig:
 @dataclass
 class AnimationConfig:
     """Animation timing configuration."""
-    BREAKING_DURATION: float = 0.6
+    BREAKING_DURATION: float = 0.3
     CRACKING_DURATION: float = 0.4
+    ENABLE_PARTICLES: bool = False  # Disable particles by default
 
 # Create global instances
 display = DisplayConfig()
