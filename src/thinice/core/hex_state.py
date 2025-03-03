@@ -6,7 +6,6 @@ class HexState(Enum):
     
     SOLID = auto()     # Uncracked ice
     CRACKED = auto()   # Has cracks but not broken
-    BREAKING = auto()  # Currently animating break
     BROKEN = auto()    # Completely broken
     
     def __str__(self) -> str:

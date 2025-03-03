@@ -42,10 +42,6 @@ class Hex:
         # Initialize components
         self.cracks: List[Crack] = []
         
-        # Animation timing
-        self.breaking_start_time = 0.0
-        self.cracking_start_time = 0.0
-        
         # Cached surfaces
         self.broken_surface: Optional[pygame.Surface] = None
         
