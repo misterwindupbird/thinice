@@ -10,6 +10,7 @@ import random
 
 from .hex import Hex
 from .hex_state import HexState
+from .entity import Entity, Player
 from ..config.settings import display, hex_grid, land
 
 class GameRestartHandler(FileSystemEventHandler):
@@ -29,12 +30,18 @@ class GameRestartHandler(FileSystemEventHandler):
 class Game:
     """Main game class managing the game loop and hex grid."""
     
+    # Singleton instance for access from Entity classes
+    instance = None
+    
     def __init__(self, enable_watcher: bool = False):
         """Initialize the game.
         
         Args:
             enable_watcher: Whether to enable auto-restart on file changes
         """
+        # Set singleton instance
+        Game.instance = self
+        
         # Set up file watcher
         self.observer = None
         if enable_watcher:
@@ -45,33 +52,22 @@ class Game:
         # Initialize display
         self._init_display()
         
-        # Initialize viewport parameters with default values
-        self.scroll_x = 0
-        self.scroll_y = 0
-        self.scroll_speed = 15  # Pixels per scroll unit
-        
-        # Initialize player
-        self.player_hex = None  # Current hex the player is on
-        self.player_color = (255, 0, 0)  # Red
-        self.player_radius = hex_grid.RADIUS // 2  # Half the hex radius
+        # Track keyboard state
         self.shift_pressed = False  # Track if shift is being pressed
         
         # Initialize world size with default values
         self.world_width = 0
         self.world_height = 0
-        self.max_scroll_x = 0
-        self.max_scroll_y = 0
         
         # Initialize game state
         self.hexes: List[List[Hex]] = []
         self._init_hex_grid()  # This calculates world_width and world_height
         self.start_time = pygame.time.get_ticks() / 1000.0
         
-        # Now calculate maximum scroll limits based on the initialized world size
-        self.max_scroll_x = max(0, self.world_width - display.WINDOW_WIDTH)
-        self.max_scroll_y = max(0, self.world_height - display.WINDOW_HEIGHT)
+        # Initialize player on a random SOLID hex
+        self.player = self._init_player()
         
-        print(f"Scroll limits: ({self.max_scroll_x}, {self.max_scroll_y})")
+        print(f"World dimensions: ({self.world_width}, {self.world_height})")
     
     def _init_display(self) -> None:
         """Initialize the game display."""
@@ -101,9 +97,9 @@ class Game:
         - Hexes adjacent to LAND are pure white
         - The rest are SOLID with blue-grey gradient
         """
-        # Update grid dimensions to ensure the map fills the entire screen
-        hex_grid.GRID_WIDTH = 100
-        hex_grid.GRID_HEIGHT = 100
+        # Set grid dimensions to fit the screen
+        hex_grid.GRID_WIDTH = 20
+        hex_grid.GRID_HEIGHT = 15
         
         # Calculate hex dimensions
         hex_height = hex_grid.RADIUS * 1.732  # sqrt(3)
@@ -121,10 +117,10 @@ class Game:
         print(f"World size: {self.world_width}x{self.world_height}")
         print(f"Window size: {display.WINDOW_WIDTH}x{display.WINDOW_HEIGHT}")
         
-        # Calculate how many hexes can fit entirely on the screen
+        # Track all LAND hexes for adjacency check later
         visible_area = []
         edge_hexes = []
-        land_hexes = []  # Track all LAND hexes for adjacency check later
+        land_hexes = []
         
         # Create the hex grid with proper world coordinates
         for x in range(hex_grid.GRID_WIDTH):
@@ -140,31 +136,12 @@ class Game:
                 # Create the hex
                 is_land = False
                 
-                # Convert world to screen coordinates
-                screen_x = center_x - self.scroll_x
-                screen_y = center_y - self.scroll_y
-                
-                # Check if the hex is fully visible on screen
-                is_fully_visible = (
-                    screen_x - hex_grid.RADIUS >= 0 and
-                    screen_x + hex_grid.RADIUS <= display.WINDOW_WIDTH and
-                    screen_y - hex_grid.RADIUS >= 0 and
-                    screen_y + hex_grid.RADIUS <= display.WINDOW_HEIGHT
-                )
-                
-                # Check if the hex is at least partially visible
-                is_partially_visible = (
-                    screen_x + hex_grid.RADIUS >= 0 and
-                    screen_x - hex_grid.RADIUS <= display.WINDOW_WIDTH and
-                    screen_y + hex_grid.RADIUS >= 0 and
-                    screen_y - hex_grid.RADIUS <= display.WINDOW_HEIGHT
-                )
-                
-                # Hexes not entirely on screen are LAND
-                if is_partially_visible and not is_fully_visible:
+                # Check if the hex is at the edge of the grid
+                if (x == 0 or x == hex_grid.GRID_WIDTH - 1 or 
+                    y == 0 or y == hex_grid.GRID_HEIGHT - 1):
                     is_land = True
                     edge_hexes.append((x, y))
-                elif is_fully_visible:
+                else:
                     visible_area.append((x, y))
                 
                 # Create the hex with the appropriate state
@@ -239,6 +216,28 @@ class Game:
                     )
                     white_hexes_count += 1
         
+    def _init_player(self) -> Player:
+        """Initialize the player on a random SOLID hex.
+        
+        Returns:
+            The initialized Player entity
+        """
+        # Find all SOLID hexes
+        solid_hexes = []
+        for x in range(hex_grid.GRID_WIDTH):
+            for y in range(hex_grid.GRID_HEIGHT):
+                if self.hexes[x][y].state == HexState.SOLID:
+                    solid_hexes.append(self.hexes[x][y])
+        
+        # Choose a random SOLID hex
+        if solid_hexes:
+            start_hex = random.choice(solid_hexes)
+            print(f"Player starting at ({start_hex.grid_x}, {start_hex.grid_y})")
+            return Player(start_hex)
+        else:
+            # Fallback to first hex if no SOLID hexes
+            print("Warning: No SOLID hexes found for player start. Using first hex.")
+            return Player(self.hexes[0][0])
     
     def get_hex_neighbors(self, hex: Hex) -> List[Hex]:
         """Get list of neighboring hex tiles.
@@ -296,8 +295,6 @@ class Game:
         """Run the main game loop."""
         try:
             running = True
-            scrolling = False
-            last_mouse_pos = (0, 0)
             
             while running:
                 current_time = pygame.time.get_ticks() / 1000.0 - self.start_time
@@ -308,12 +305,6 @@ class Game:
                     elif event.type == pygame.MOUSEBUTTONDOWN:
                         if event.button == 1:  # Left click
                             self._handle_click(event.pos, current_time)
-                        elif event.button == 2:  # Middle mouse button
-                            scrolling = True
-                            last_mouse_pos = event.pos
-                    elif event.type == pygame.MOUSEBUTTONUP:
-                        if event.button == 2:  # Middle mouse button
-                            scrolling = False
                     elif event.type == pygame.KEYDOWN:
                         if event.key == pygame.K_ESCAPE:
                             running = False
@@ -322,18 +313,6 @@ class Game:
                     elif event.type == pygame.KEYUP:
                         if event.key in (pygame.K_LSHIFT, pygame.K_RSHIFT):
                             self.shift_pressed = False
-                    elif event.type == pygame.MOUSEMOTION and scrolling:
-                        # Calculate the difference from the last position
-                        dx = event.pos[0] - last_mouse_pos[0]
-                        dy = event.pos[1] - last_mouse_pos[1]
-                        self._handle_scroll(-dx, -dy)
-                        last_mouse_pos = event.pos
-                    elif event.type == pygame.MOUSEWHEEL:
-                        # Handle mouse wheel scrolling
-                        # Vertical scrolling (y) is primary, horizontal (x) is secondary
-                        scroll_y = event.y * self.scroll_speed
-                        scroll_x = event.x * self.scroll_speed
-                        self._handle_scroll(-scroll_x, -scroll_y)
                 
                 self._draw(current_time)
                 pygame.display.flip()
@@ -352,7 +331,7 @@ class Game:
             current_time: Current game time in seconds
         """
         # Find the clicked hex
-        clicked_hex = self.pixel_to_hex(*pos)
+        clicked_hex = self.pixel_to_hex(pos[0], pos[1])
         if not clicked_hex:
             return
             
@@ -360,15 +339,12 @@ class Game:
         print(f"Clicked hex at ({clicked_hex.grid_x}, {clicked_hex.grid_y})")
         
         if self.shift_pressed:
-            # Move player to the clicked hex only if it's not broken
-            if clicked_hex.state != HexState.BROKEN:
-                self.player_hex = clicked_hex
-                print(f"Player moved to ({clicked_hex.grid_x}, {clicked_hex.grid_y})")
-            else:
-                print("Cannot move player to broken hex!")
+            # Move player to the clicked hex if it's adjacent
+            if self.player and not self.player.is_moving:
+                self.player.move(clicked_hex, current_time)
         else:
             # Don't break the hex if the player is standing on it
-            if self.player_hex and clicked_hex == self.player_hex:
+            if self.player and clicked_hex == self.player.current_hex:
                 print("Cannot break hex where player is standing!")
                 return
             
@@ -390,69 +366,36 @@ class Game:
         # Clear the screen
         self.screen.fill(display.BACKGROUND_COLOR)
         
-        # Calculate hex dimensions
-        hex_height = hex_grid.RADIUS * 1.732
-        spacing_x = hex_grid.RADIUS * 1.5
-        spacing_y = hex_height
-        
-        # Determine which hexes are visible in the viewport
-        # Convert viewport boundaries to grid coordinates
-        min_visible_x = max(0, int(self.scroll_x / spacing_x) - 1)
-        max_visible_x = min(hex_grid.GRID_WIDTH - 1, int((self.scroll_x + display.WINDOW_WIDTH) / spacing_x) + 1)
-        min_visible_y = max(0, int(self.scroll_y / spacing_y) - 1)
-        max_visible_y = min(hex_grid.GRID_HEIGHT - 1, int((self.scroll_y + display.WINDOW_HEIGHT) / spacing_y) + 1)
-        
-        # Collect visible non-broken hexes for collision detection
+        # Collect non-broken hexes for collision detection
         non_broken_hexes = []
         
-        # Draw only the visible hexes
-        for x in range(min_visible_x, max_visible_x + 1):
-            for y in range(min_visible_y, max_visible_y + 1):
+        # Draw all hexes
+        for x in range(hex_grid.GRID_WIDTH):
+            for y in range(hex_grid.GRID_HEIGHT):
                 hex = self.hexes[x][y]
                 
-                # Calculate the screen position for this hex
-                world_x, world_y = hex.center
-                screen_x = world_x - self.scroll_x
-                screen_y = world_y - self.scroll_y
-                
-                # Only add to non-broken list if this hex is visible and not broken
+                # Only add to non-broken list if this hex is not broken
                 if hex.state != HexState.BROKEN:
                     non_broken_hexes.append(hex)
-                
-                # Save original center
-                original_center = hex.center
-                
-                # Set temporary center for drawing
-                hex.center = (screen_x, screen_y)
                 
                 # Draw the hex
                 if hex.state in [HexState.BROKEN, HexState.BREAKING]:
                     hex.draw(self.screen, current_time, non_broken_hexes)
                 else:
                     hex.draw(self.screen, current_time)
-                
-                # Restore original center
-                hex.center = original_center
         
-        # Draw player if they exist on a hex
-        if self.player_hex:
-            # Convert world coordinates to screen coordinates
-            player_world_x, player_world_y = self.player_hex.center
-            player_screen_x = player_world_x - self.scroll_x
-            player_screen_y = player_world_y - self.scroll_y
+        # Draw player using the Entity draw method
+        if self.player:
+            # Debug print to verify player exists
+            print(f"Drawing player at ({self.player.current_hex.grid_x}, {self.player.current_hex.grid_y})")
+            self.player.draw(self.screen, current_time, 0, 0)
             
-            # Only draw if the player is on screen
-            if (player_screen_x + self.player_radius >= 0 and 
-                player_screen_x - self.player_radius <= display.WINDOW_WIDTH and
-                player_screen_y + self.player_radius >= 0 and 
-                player_screen_y - self.player_radius <= display.WINDOW_HEIGHT):
-                
-                # Draw the player as a red circle
-                pygame.draw.circle(
-                    self.screen, 
-                    self.player_color, 
-                    (player_screen_x, player_screen_y), 
-                    self.player_radius
-                )
+            # Update player animation
+            self.player.update(current_time)
+        else:
+            print("Warning: Player is None!")
         
-        # Remove debug overlay with hex coordinates 
+        # Debug info
+        debug_text = f"Player: {self.player.current_hex.grid_x}, {self.player.current_hex.grid_y}"
+        debug_surface = display.font.render(debug_text, True, (255, 255, 255))
+        self.screen.blit(debug_surface, (10, 10)) 

@@ -1649,3 +1649,11 @@ class Hex:
             self._draw_broken(screen, current_time, non_broken_hexes) 
         elif self.state == HexState.LAND:
             self._draw_land(screen)
+    
+    def is_broken(self) -> bool:
+        """Check if the hex is in a broken state.
+        
+        Returns:
+            True if the hex is broken or breaking, False otherwise
+        """
+        return self.state in [HexState.BROKEN, HexState.BREAKING]
