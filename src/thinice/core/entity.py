@@ -67,8 +67,15 @@ class Entity(ABC):
         self.move_start_pos = self.current_hex.center
         self.move_end_pos = target_hex.center
         
+        # Signal that movement has started (for floating text)
+        self.on_move_start()
+        
         print(f"Moving from ({self.current_hex.grid_x}, {self.current_hex.grid_y}) to ({target_hex.grid_x}, {target_hex.grid_y})")
         return True
+    
+    def on_move_start(self) -> None:
+        """Called when movement starts. Can be overridden by subclasses."""
+        pass
     
     def get_adjacent_hexes(self) -> list:
         """Get list of adjacent hexes.
@@ -116,11 +123,10 @@ class Entity(ABC):
         
         # Draw the glyph
         font = pygame.font.SysFont(display.FONT_NAME, int(self.radius * 1.5))
-        text = font.render(self.glyph, True, (0, 0, 0))
+        text = font.render(self.glyph, True, self.color)  # White text for better visibility
         text_rect = text.get_rect(center=(x, y))
         screen.blit(text, text_rect)
         
-
 class Player(Entity):
     """Player entity controlled by the user."""
     
@@ -130,7 +136,7 @@ class Player(Entity):
         Args:
             hex: The hex tile the player starts on
         """
-        super().__init__(hex, color=(255, 0, 0))  # Red color
+        super().__init__(hex, color=(0, 0, 0))
         self.glyph = "@"
         self.radius = 20
     
@@ -141,4 +147,10 @@ class Player(Entity):
             current_time: Current game time in seconds
         """
         # Currently just handles animation updates, which are done in the base class draw method
-        pass 
+        pass
+    
+    def on_move_start(self) -> None:
+        """Create floating text when player starts moving."""
+        from .game import Game  # Import here to avoid circular imports
+        if Game.instance:
+            Game.instance.add_floating_text("MOVE", self.current_hex.center, (255, 100, 100)) 

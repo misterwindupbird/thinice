@@ -13,6 +13,75 @@ from .hex_state import HexState
 from .entity import Entity, Player
 from ..config.settings import display, hex_grid, land
 
+class FloatingText:
+    """Animated floating text that moves up and fades out."""
+    
+    def __init__(self, text: str, position: Tuple[float, float], color: Tuple[int, int, int] = (255, 50, 50)):
+        """Initialize floating text.
+        
+        Args:
+            text: The text to display
+            position: Starting position (x, y)
+            color: RGB color of the text (default is red)
+        """
+        self.text = text
+        self.position = list(position)  # Convert to list for easier modification
+        self.color = list(color)  # Convert to list to modify alpha
+        self.alpha = 255
+        self.start_time = pygame.time.get_ticks() / 1000.0
+        self.duration = 1.2  # Total animation duration in seconds
+        self.is_active = True
+        self.font = pygame.font.SysFont(display.FONT_NAME, 24, bold=True)
+        
+        # Create a glow surface (slightly larger text in a different color)
+        self.glow_color = (color[0], min(255, color[1] + 50), min(255, color[2] + 50), 150)
+        self.glow_font = pygame.font.SysFont(display.FONT_NAME, 26, bold=True)
+        
+        # Start position slightly above the entity
+        self.position[1] -= 30  # Start 30 pixels above the entity
+    
+    def update(self, current_time: float) -> None:
+        """Update the floating text animation.
+        
+        Args:
+            current_time: Current game time in seconds
+        """
+        elapsed = current_time - self.start_time
+        
+        if elapsed >= self.duration:
+            self.is_active = False
+            return
+        
+        # Calculate progress (0.0 to 1.0)
+        progress = elapsed / self.duration
+        
+        # Move upward very slightly
+        self.position[1] -= 0.3  # Minimal upward movement
+        
+        # Fade out (alpha from 255 to 0)
+        self.alpha = max(0, int(255 * (1.0 - progress)))
+    
+    def draw(self, screen: pygame.Surface) -> None:
+        """Draw the floating text on the screen.
+        
+        Args:
+            screen: Pygame surface to draw on
+        """
+        if not self.is_active:
+            return
+        
+        # Draw glow effect first (underneath)
+        glow_text = self.glow_font.render(self.text, True, self.glow_color)
+        glow_text.set_alpha(self.alpha // 2)  # Glow is more transparent
+        glow_rect = glow_text.get_rect(center=(self.position[0], self.position[1]))
+        screen.blit(glow_text, glow_rect)
+        
+        # Draw main text
+        text_surface = self.font.render(self.text, True, self.color)
+        text_surface.set_alpha(self.alpha)
+        text_rect = text_surface.get_rect(center=(self.position[0], self.position[1]))
+        screen.blit(text_surface, text_rect)
+
 class GameRestartHandler(FileSystemEventHandler):
     """File system event handler for game auto-restart."""
     
@@ -67,6 +136,9 @@ class Game:
         # Initialize player on a random SOLID hex
         self.player = self._init_player()
         
+        # List to store active floating text animations
+        self.floating_texts = []
+        
         print(f"World dimensions: ({self.world_width}, {self.world_height})")
     
     def _init_display(self) -> None:
@@ -98,7 +170,7 @@ class Game:
         - The rest are SOLID with blue-grey gradient
         """
         # Set grid dimensions to fit the screen
-        hex_grid.GRID_WIDTH = 20
+        hex_grid.GRID_WIDTH = 21
         hex_grid.GRID_HEIGHT = 15
         
         # Calculate hex dimensions
@@ -116,6 +188,7 @@ class Game:
         
         print(f"World size: {self.world_width}x{self.world_height}")
         print(f"Window size: {display.WINDOW_WIDTH}x{display.WINDOW_HEIGHT}")
+        print(f"Hex radius: {hex_grid.RADIUS}, spacing: {spacing_x}x{spacing_y}")
         
         # Track all LAND hexes for adjacency check later
         visible_area = []
@@ -141,6 +214,15 @@ class Game:
                     y == 0 or y == hex_grid.GRID_HEIGHT - 1):
                     is_land = True
                     edge_hexes.append((x, y))
+                    print(f"Grid edge hex at ({x}, {y}), center: ({center_x}, {center_y})")
+                # Check if the hex is not fully visible on screen
+                elif (center_x - hex_grid.RADIUS < 0 or 
+                      center_x + hex_grid.RADIUS > display.WINDOW_WIDTH or
+                      center_y - hex_grid.RADIUS < 0 or 
+                      center_y + hex_grid.RADIUS > display.WINDOW_HEIGHT):
+                    is_land = True
+                    edge_hexes.append((x, y))
+                    print(f"Off-screen hex at ({x}, {y}), center: ({center_x}, {center_y})")
                 else:
                     visible_area.append((x, y))
                 
@@ -323,6 +405,16 @@ class Game:
                 self.observer.join()
             pygame.quit()
     
+    def add_floating_text(self, text: str, position: Tuple[float, float], color: Tuple[int, int, int] = (255, 255, 255)) -> None:
+        """Add a floating text animation at the specified position.
+        
+        Args:
+            text: The text to display
+            position: Position (x, y) to display the text
+            color: RGB color of the text
+        """
+        self.floating_texts.append(FloatingText(text, position, color))
+    
     def _handle_click(self, pos: Tuple[int, int], current_time: float) -> None:
         """Handle a mouse click at the given position.
         
@@ -339,23 +431,46 @@ class Game:
         print(f"Clicked hex at ({clicked_hex.grid_x}, {clicked_hex.grid_y})")
         
         if self.shift_pressed:
-            # Move player to the clicked hex if it's adjacent
-            if self.player and not self.player.is_moving:
-                self.player.move(clicked_hex, current_time)
-        else:
+            # SHIFT-CLICK: Break ice
             # Don't break the hex if the player is standing on it
             if self.player and clicked_hex == self.player.current_hex:
                 print("Cannot break hex where player is standing!")
                 return
             
-            # Handle normal ice-breaking behavior
+            # Handle ice-breaking behavior
             neighbors = self.get_hex_neighbors(clicked_hex)
             
             # Handle state transitions
             if clicked_hex.state == HexState.SOLID:
                 clicked_hex.crack(neighbors)
+                # Create floating text for CRACK action
+                self.add_floating_text("CRACK!", clicked_hex.center, (255, 70, 70))
             elif clicked_hex.state == HexState.CRACKED:
                 clicked_hex.break_ice()
+                # Create floating text for BREAK action
+                self.add_floating_text("BREAK!", clicked_hex.center, (255, 30, 30))
+        else:
+            # REGULAR CLICK
+            # Check if clicked on player's hex (STOMP action)
+            if self.player and clicked_hex == self.player.current_hex:
+                print("STOMP! Breaking player hex and adjacent hexes")
+                # Create floating text for STOMP action
+                self.add_floating_text("STOMP!", self.player.current_hex.center, (255, 0, 0))
+                
+                # Get all adjacent hexes
+                neighbors = self.get_hex_neighbors(clicked_hex)
+                
+                # Advance state of player's hex and all adjacent hexes
+                hexes_to_process = [clicked_hex] + neighbors
+                for hex in hexes_to_process:
+                    if hex.state == HexState.SOLID:
+                        hex.crack([])  # Empty list since we don't need to check neighbors here
+                    elif hex.state == HexState.CRACKED:
+                        hex.break_ice()
+            # Move player to adjacent hex
+            elif self.player and not self.player.is_moving:
+                # Try to move player to the clicked hex
+                self.player.move(clicked_hex, current_time)
     
     def _draw(self, current_time: float) -> None:
         """Draw the game state.
@@ -394,6 +509,17 @@ class Game:
             self.player.update(current_time)
         else:
             print("Warning: Player is None!")
+        
+        # Update and draw floating text animations
+        active_texts = []
+        for text in self.floating_texts:
+            text.update(current_time)
+            if text.is_active:
+                text.draw(self.screen)
+                active_texts.append(text)
+        
+        # Remove inactive texts
+        self.floating_texts = active_texts
         
         # Debug info
         debug_text = f"Player: {self.player.current_hex.grid_x}, {self.player.current_hex.grid_y}"
