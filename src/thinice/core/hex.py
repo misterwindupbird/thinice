@@ -1657,3 +1657,26 @@ class Hex:
             True if the hex is broken or breaking, False otherwise
         """
         return self.state in [HexState.BROKEN, HexState.BREAKING]
+
+    def get_neighbor(self, edge_index: int, hex_grid: List[List['Hex']]) -> Optional['Hex']:
+        """Get the neighboring hex based on the given edge index.
+        
+        Args:
+            edge_index: The index of the edge to find the neighbor for.
+            hex_grid: The grid of hexes to search within.
+            
+        Returns:
+            The neighboring hex if it exists, otherwise None.
+        """
+        # Directions for even and odd rows
+        directions = [
+            [(0,-1), (1,-1), (1,0), (0,1), (-1,0), (-1,-1)],  # even row
+            [(0,-1), (1,0), (1,1), (0,1), (-1,1), (-1,0)]     # odd row
+        ][self.grid_x % 2]
+        
+        if 0 <= edge_index < len(directions):
+            dx, dy = directions[edge_index]
+            nx, ny = self.grid_x + dx, self.grid_y + dy
+            if 0 <= nx < len(hex_grid) and 0 <= ny < len(hex_grid[0]):
+                return hex_grid[nx][ny]
+        return None

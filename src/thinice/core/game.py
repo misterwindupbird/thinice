@@ -530,7 +530,7 @@ class Game:
         A valid sprint target is a hex that:
         1. Is exactly 3 steps away in a straight line
         2. Is in a SOLID state (not cracked, broken, or land)
-        3. All hexes in the path must be valid (not LAND)
+        3. All hexes in the path must be valid (not LAND or BROKEN)
         
         Args:
             player_hex: The player's current hex
@@ -540,18 +540,25 @@ class Game:
         """
         valid_targets = []
         
-        # Get all hexes at distance 3
-        distance_3_hexes = self.get_hexes_at_distance(player_hex, 3)
-        
-        # For each potential target, check if it's in a straight line
-        for target in distance_3_hexes:
-            if target.state != HexState.SOLID:
-                continue
-                
-            # Try to find a path in a straight line
-            path = self.find_straight_line_path(player_hex, target)
-            if path and all(hex.state != HexState.LAND for hex in path):
-                valid_targets.append((target, path))
+        for edge_index in range(6):
+            path = [player_hex]
+            current_hex = player_hex
+            valid_path = True
+            
+            for step in range(3):
+                next_hex = current_hex.get_neighbor(edge_index, self.hexes)
+                if not next_hex or next_hex.state in [HexState.LAND, HexState.BROKEN]:
+                    print(f"Path rejected at step {step+1}: Hex at ({current_hex.grid_x}, {current_hex.grid_y}) is {current_hex.state}")
+                    valid_path = False
+                    break
+                path.append(next_hex)
+                current_hex = next_hex
+            
+            if valid_path and path[-1].state == HexState.SOLID:
+                print(f"Valid sprint target found at ({path[-1].grid_x}, {path[-1].grid_y})")
+                valid_targets.append((path[-1], path))
+            else:
+                print(f"Invalid path to ({path[-1].grid_x}, {path[-1].grid_y})")
         
         return valid_targets
     
@@ -789,7 +796,7 @@ class Game:
         # Draw player using the Entity draw method
         if self.player:
             # Debug print to verify player exists
-            print(f"Drawing player at ({self.player.current_hex.grid_x}, {self.player.current_hex.grid_y})")
+            # print(f"Drawing player at ({self.player.current_hex.grid_x}, {self.player.current_hex.grid_y})")
             self.player.draw(draw_surface, current_time, 0, 0)
             
             # Update player animation
