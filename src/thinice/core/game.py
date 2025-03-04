@@ -139,6 +139,19 @@ class Game:
         # List to store active floating text animations
         self.floating_texts = []
         
+        # Screen shake effect variables
+        self.is_screen_shaking = False
+        self.screen_shake_start = 0
+        self.screen_shake_duration = 0
+        self.screen_shake_intensity = 0
+        
+        # Delayed hex effects for STOMP
+        self.has_pending_hex_effects = False
+        self.pending_hex_effects = []
+        self.hex_effect_start_time = 0
+        self.hex_effect_delay = 0
+        self.center_hex_for_effects = None  # Store the center hex for reference
+        
         print(f"World dimensions: ({self.world_width}, {self.world_height})")
     
     def _init_display(self) -> None:
@@ -453,20 +466,25 @@ class Game:
             # REGULAR CLICK
             # Check if clicked on player's hex (STOMP action)
             if self.player and clicked_hex == self.player.current_hex:
-                print("STOMP! Breaking player hex and adjacent hexes")
+                print("STOMP! Breaking player hex first, then adjacent hexes")
                 # Create floating text for STOMP action
                 self.add_floating_text("STOMP!", self.player.current_hex.center, (255, 0, 0))
                 
-                # Get all adjacent hexes
+                # Apply screen shake effect
+                self.start_screen_shake(current_time)
+                
+                # Get all adjacent hexes for later processing
                 neighbors = self.get_hex_neighbors(clicked_hex)
                 
-                # Advance state of player's hex and all adjacent hexes
-                hexes_to_process = [clicked_hex] + neighbors
-                for hex in hexes_to_process:
-                    if hex.state == HexState.SOLID:
-                        hex.crack([])  # Empty list since we don't need to check neighbors here
-                    elif hex.state == HexState.CRACKED:
-                        hex.break_ice()
+                # First, only crack the player's hex if it's SOLID
+                if clicked_hex.state == HexState.SOLID:
+                    clicked_hex.crack([])  # Empty list since we don't need to check neighbors here
+                    # Schedule the surrounding hexes to crack/break after a delay
+                    self.schedule_surrounding_hex_effects(clicked_hex, neighbors, current_time)
+                elif clicked_hex.state == HexState.CRACKED:
+                    clicked_hex.break_ice()
+                    # Schedule the surrounding hexes to crack/break after a delay
+                    self.schedule_surrounding_hex_effects(clicked_hex, neighbors, current_time)
             # Move player to adjacent hex
             elif self.player and not self.player.is_moving:
                 # Try to move player to the clicked hex
@@ -481,8 +499,22 @@ class Game:
         # Clear the screen
         self.screen.fill(display.BACKGROUND_COLOR)
         
+        # Process any pending hex effects
+        self.process_pending_hex_effects(current_time)
+        
+        # Calculate screen shake offset
+        shake_offset = self.apply_screen_shake(current_time)
+        
         # Collect non-broken hexes for collision detection
         non_broken_hexes = []
+        
+        # Create a temporary surface for drawing with shake effect
+        if self.is_screen_shaking:
+            temp_surface = pygame.Surface((display.WINDOW_WIDTH, display.WINDOW_HEIGHT))
+            temp_surface.fill(display.BACKGROUND_COLOR)
+            draw_surface = temp_surface
+        else:
+            draw_surface = self.screen
         
         # Draw all hexes
         for x in range(hex_grid.GRID_WIDTH):
@@ -495,15 +527,15 @@ class Game:
                 
                 # Draw the hex
                 if hex.state in [HexState.BROKEN, HexState.BREAKING]:
-                    hex.draw(self.screen, current_time, non_broken_hexes)
+                    hex.draw(draw_surface, current_time, non_broken_hexes)
                 else:
-                    hex.draw(self.screen, current_time)
+                    hex.draw(draw_surface, current_time)
         
         # Draw player using the Entity draw method
         if self.player:
             # Debug print to verify player exists
             print(f"Drawing player at ({self.player.current_hex.grid_x}, {self.player.current_hex.grid_y})")
-            self.player.draw(self.screen, current_time, 0, 0)
+            self.player.draw(draw_surface, current_time, 0, 0)
             
             # Update player animation
             self.player.update(current_time)
@@ -515,7 +547,7 @@ class Game:
         for text in self.floating_texts:
             text.update(current_time)
             if text.is_active:
-                text.draw(self.screen)
+                text.draw(draw_surface)
                 active_texts.append(text)
         
         # Remove inactive texts
@@ -524,4 +556,103 @@ class Game:
         # Debug info
         debug_text = f"Player: {self.player.current_hex.grid_x}, {self.player.current_hex.grid_y}"
         debug_surface = display.font.render(debug_text, True, (255, 255, 255))
-        self.screen.blit(debug_surface, (10, 10)) 
+        draw_surface.blit(debug_surface, (10, 10))
+        
+        # Apply screen shake by blitting the temp surface with an offset
+        if self.is_screen_shaking:
+            self.screen.blit(temp_surface, shake_offset)
+    
+    def start_screen_shake(self, current_time: float) -> None:
+        """Start a screen shake effect.
+        
+        Args:
+            current_time: Current game time in seconds
+        """
+        self.screen_shake_start = current_time
+        self.screen_shake_duration = 0.3  # seconds
+        self.screen_shake_intensity = 5  # pixels
+        self.is_screen_shaking = True
+    
+    def schedule_surrounding_hex_effects(self, center_hex: Hex, neighbors: List[Hex], current_time: float) -> None:
+        """Schedule effects on surrounding hexes after a delay.
+        
+        Args:
+            center_hex: The center hex (player's hex)
+            neighbors: List of neighboring hexes
+            current_time: Current game time in seconds
+        """
+        self.hex_effect_start_time = current_time
+        self.hex_effect_delay = 0.5  # Increased delay to ensure player hex is fully cracked
+        self.pending_hex_effects = neighbors
+        self.has_pending_hex_effects = True
+        self.center_hex_for_effects = center_hex  # Store the center hex for reference
+    
+    def apply_screen_shake(self, current_time: float) -> Tuple[int, int]:
+        """Calculate screen shake offset based on current time.
+        
+        Args:
+            current_time: Current game time in seconds
+            
+        Returns:
+            Tuple of (x_offset, y_offset) for screen shake
+        """
+        if not self.is_screen_shaking:
+            return (0, 0)
+            
+        elapsed = current_time - self.screen_shake_start
+        if elapsed >= self.screen_shake_duration:
+            self.is_screen_shaking = False
+            return (0, 0)
+            
+        # Calculate shake intensity based on time (decreases over time)
+        remaining = 1.0 - (elapsed / self.screen_shake_duration)
+        intensity = self.screen_shake_intensity * remaining
+        
+        # Generate random offset
+        import random
+        x_offset = random.uniform(-intensity, intensity)
+        y_offset = random.uniform(-intensity, intensity)
+        
+        return (int(x_offset), int(y_offset))
+    
+    def process_pending_hex_effects(self, current_time: float) -> None:
+        """Process any pending hex effects if their delay has elapsed.
+        
+        Args:
+            current_time: Current game time in seconds
+        """
+        if not self.has_pending_hex_effects or not self.center_hex_for_effects:
+            return
+            
+        # First, check if the center hex has completed its transition to CRACKED state
+        # Only proceed if the center hex is fully CRACKED or BROKEN (not in transition)
+        if self.center_hex_for_effects.state not in [HexState.CRACKED, HexState.BROKEN]:
+            return
+            
+        # Now check if enough time has passed since scheduling
+        elapsed = current_time - self.hex_effect_start_time
+        if elapsed < self.hex_effect_delay:
+            return
+            
+        # Time to apply effects to surrounding hexes
+        for hex in self.pending_hex_effects:
+            if hex.state == HexState.SOLID:
+                # Pass the center hex and other neighbors to ensure cracks connect properly
+                neighbors_for_crack = [self.center_hex_for_effects]
+                # Also include other already cracked neighbors to ensure proper connections
+                for neighbor in self.get_hex_neighbors(hex):
+                    if neighbor.state == HexState.CRACKED and neighbor != self.center_hex_for_effects:
+                        neighbors_for_crack.append(neighbor)
+                
+                hex.crack(neighbors_for_crack)  # Pass neighbors to connect cracks
+                # Create smaller floating text for surrounding cracks
+                self.add_floating_text("crack", hex.center, (255, 100, 100))
+            elif hex.state == HexState.CRACKED:
+                hex.break_ice()
+                # Create smaller floating text for surrounding breaks
+                self.add_floating_text("break", hex.center, (255, 70, 70))
+        
+        # Clear pending effects
+        self.has_pending_hex_effects = False
+        self.pending_hex_effects = []
+        self.center_hex_for_effects = None 
