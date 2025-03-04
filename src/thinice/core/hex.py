@@ -8,7 +8,7 @@ from pygame.math import Vector2
 
 from .hex_state import HexState
 from .crack import Crack
-from ..config.settings import hex_grid, crack as crack_config, water, animation
+from ..config.settings import hex_grid, crack as crack_config, water, animation, display
 from ..utils.geometry import (
     Point, 
     calculate_hex_vertices,
@@ -348,8 +348,8 @@ class Hex:
         base_r, base_g, base_b = 255, 255, 255
         
         # Add slight variations to create a more natural look
-        grey_var = random.randint(-10, 0)  # Slight grey variation
-        blue_var = random.randint(-5, 0)   # Slight blue tint
+        grey_var = random.randint(-3, -0)  # Slight grey variation
+        blue_var = random.randint(-1, -0)   # Slight blue tint
         
         return (
             min(255, max(0, base_r + grey_var)),
@@ -1131,7 +1131,7 @@ class Hex:
         self.fragment_sprites.update(current_time, non_broken_hexes)
         self.fragment_sprites.draw(screen)
     
-    def _draw_cracking(self, screen: pygame.Surface, font: pygame.font.Font, current_time: float) -> None:
+    def _draw_cracking(self, screen: pygame.Surface, current_time: float) -> None:
         """Draw the cracking animation with cracks growing from center outward.
         
         Args:
@@ -1296,11 +1296,12 @@ class Hex:
         screen.blit(crack_surface, (offset_x, offset_y))
         
         # Draw coordinates
-        text = font.render(f"({self.grid_x},{self.grid_y})", True, hex_grid.TEXT_COLOR)
-        text_rect = text.get_rect(center=self.center)
-        screen.blit(text, text_rect)
+        if display.DRAW_OVERLAY:
+            text = display.font.render(f"({self.grid_x},{self.grid_y})", True, hex_grid.TEXT_COLOR)
+            text_rect = text.get_rect(center=self.center)
+            screen.blit(text, text_rect)
     
-    def _draw_cracked(self, screen: pygame.Surface, font: pygame.font.Font) -> None:
+    def _draw_cracked(self, screen: pygame.Surface) -> None:
         """Draw the cracked state with thin water-colored hairlines."""
         # Draw base hex
         pygame.draw.polygon(screen, self.color, self.vertices)
@@ -1315,19 +1316,21 @@ class Hex:
             pygame.draw.lines(screen, water.CRACK_COLOR, False, crack.points, 1)
         
         # Draw coordinates only (no outline)
-        text = font.render(f"({self.grid_x},{self.grid_y})", True, hex_grid.TEXT_COLOR)
-        text_rect = text.get_rect(center=self.center)
-        screen.blit(text, text_rect)
+        if display.DRAW_OVERLAY:
+            text = display.font.render(f"({self.grid_x},{self.grid_y})", True, hex_grid.TEXT_COLOR)
+            text_rect = text.get_rect(center=self.center)
+            screen.blit(text, text_rect)
         
     
-    def _draw_solid(self, screen: pygame.Surface, font: pygame.font.Font) -> None:
+    def _draw_solid(self, screen: pygame.Surface) -> None:
         """Draw the solid state."""
 
         pygame.draw.polygon(screen, self.color, self.vertices)
-        # Border removed
-        text = font.render(f"({self.grid_x},{self.grid_y})", True, hex_grid.TEXT_COLOR)
-        text_rect = text.get_rect(center=self.center)
-        screen.blit(text, text_rect)
+
+        if display.DRAW_OVERLAY:
+            text = display.font.render(f"({self.grid_x},{self.grid_y})", True, hex_grid.TEXT_COLOR)
+            text_rect = text.get_rect(center=self.center)
+            screen.blit(text, text_rect)
     
     def _line_intersection(self, line1: Tuple[Tuple[float, float], Tuple[float, float]], 
                           line2: Tuple[Tuple[float, float], Tuple[float, float]]) -> Optional[Tuple[float, float]]:
@@ -1354,12 +1357,11 @@ class Hex:
         
         return None
     
-    def _draw_breaking(self, screen: pygame.Surface, font: pygame.font.Font, current_time: float, non_broken_hexes: List['Hex'] = None) -> None:
+    def _draw_breaking(self, screen: pygame.Surface, current_time: float, non_broken_hexes: List['Hex'] = None) -> None:
         """Draw the breaking animation state with widening cracks and separating fragments.
         
         Args:
             screen: Surface to draw on
-            font: Font for text rendering
             current_time: Current game time in seconds
             non_broken_hexes: List of hexes that are not in BROKEN state (for collision detection)
         """
@@ -1600,45 +1602,45 @@ class Hex:
         max_y = max(v[1] for v in self.vertices)
         return (min_x, min_y, max_x, max_y)
     
-    def _draw_land(self, screen: pygame.Surface, font: pygame.font.Font) -> None:
+    def _draw_land(self, screen: pygame.Surface) -> None:
         """Draw the land state."""
         pygame.draw.polygon(screen, self.color, self.vertices)
-        text = font.render(f"({self.grid_x},{self.grid_y})", True, hex_grid.TEXT_COLOR)
-        text_rect = text.get_rect(center=self.center)
-        screen.blit(text, text_rect)
+        if display.DRAW_OVERLAY:
+            text = display.font.render(f"({self.grid_x},{self.grid_y})", True, hex_grid.TEXT_COLOR)
+            text_rect = text.get_rect(center=self.center)
+            screen.blit(text, text_rect)
     
-    def draw(self, screen: pygame.Surface, font: pygame.font.Font, current_time: float, non_broken_hexes: List['Hex'] = None) -> None:
+    def draw(self, screen: pygame.Surface, current_time: float, non_broken_hexes: List['Hex'] = None) -> None:
         """Draw the hex tile based on its current state.
         
         Args:
             screen: Surface to draw on
-            font: Font for text rendering
             current_time: Current game time in seconds
             non_broken_hexes: List of hexes that are not in BROKEN state (for collision detection)
         """
         if self.state == HexState.SOLID:
-            self._draw_solid(screen, font)
+            self._draw_solid(screen)
         elif self.state == HexState.CRACKING:
             # Update transition progress
             elapsed = current_time - self.transition_start_time
             self.transition_progress = min(1.0, elapsed / self.transition_duration)
             
             # Draw the cracking animation
-            self._draw_cracking(screen, font, current_time)
+            self._draw_cracking(screen, current_time)
             
             # Check if transition is complete
             if self.transition_progress >= 1.0:
                 self.state = HexState.CRACKED
                 # Secondary cracks are now added during the animation
         elif self.state == HexState.CRACKED:
-            self._draw_cracked(screen, font)
+            self._draw_cracked(screen)
         elif self.state == HexState.BREAKING:
             # Update transition progress
             elapsed = current_time - self.transition_start_time
             self.transition_progress = min(1.0, elapsed / self.transition_duration)
             
             # Draw the breaking animation
-            self._draw_breaking(screen, font, current_time, non_broken_hexes)
+            self._draw_breaking(screen, current_time, non_broken_hexes)
             
             # Check if transition is complete
             if self.transition_progress >= 1.0:
@@ -1646,4 +1648,4 @@ class Hex:
         elif self.state == HexState.BROKEN:
             self._draw_broken(screen, current_time, non_broken_hexes) 
         elif self.state == HexState.LAND:
-            self._draw_land(screen, font)
+            self._draw_land(screen)

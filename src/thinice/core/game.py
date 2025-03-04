@@ -90,7 +90,7 @@ class Game:
         # Set up display
         self.screen = pygame.display.set_mode((display.WINDOW_WIDTH, display.WINDOW_HEIGHT))
         pygame.display.set_caption("Hex Grid")
-        self.font = pygame.font.SysFont(display.FONT_NAME, display.FONT_SIZE)
+        display.font = pygame.font.SysFont(display.FONT_NAME, display.FONT_SIZE)
     
     def _init_hex_grid(self) -> None:
         """Initialize the hex grid.
@@ -427,9 +427,9 @@ class Game:
                 
                 # Draw the hex
                 if hex.state in [HexState.BROKEN, HexState.BREAKING]:
-                    hex.draw(self.screen, self.font, current_time, non_broken_hexes)
+                    hex.draw(self.screen, current_time, non_broken_hexes)
                 else:
-                    hex.draw(self.screen, self.font, current_time)
+                    hex.draw(self.screen, current_time)
                 
                 # Restore original center
                 hex.center = original_center

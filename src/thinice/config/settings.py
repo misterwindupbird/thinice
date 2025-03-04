@@ -1,6 +1,7 @@
 """Game configuration settings."""
 from dataclasses import dataclass
 from typing import Tuple
+import pygame
 
 @dataclass
 class DisplayConfig:
@@ -10,6 +11,9 @@ class DisplayConfig:
     BACKGROUND_COLOR: Tuple[int, int, int] = (20, 20, 30)
     FONT_NAME: str = 'Arial'
     FONT_SIZE: int = 10
+    DRAW_OVERLAY: bool = False
+    font: pygame.font.Font = None
+
 
 @dataclass
 class HexConfig:
@@ -19,7 +23,7 @@ class HexConfig:
     GRID_HEIGHT: int = 10
     LINE_COLOR: Tuple[int, int, int] = (240, 240, 245)
     TEXT_COLOR: Tuple[int, int, int] = (100, 120, 140)
-    ICE_BASE_COLOR: Tuple[int, int, int] = (245, 245, 250)
+    # ICE_BASE_COLOR: Tuple[int, int, int] = (245, 245, 250)
     MAX_FRAGMENT_SIZE_PERCENT: float = 0.20  # Maximum fragment size as percentage of hex area (15%)
 
 @dataclass
