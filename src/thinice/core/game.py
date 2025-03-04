@@ -152,6 +152,9 @@ class Game:
         self.hex_effect_delay = 0
         self.center_hex_for_effects = None  # Store the center hex for reference
         
+        # Debug visualization
+        self.show_jump_targets = False  # Set to False to hide valid jump targets
+        
         print(f"World dimensions: ({self.world_width}, {self.world_height})")
     
     def _init_display(self) -> None:
@@ -360,6 +363,68 @@ class Game:
         
         return neighbors
     
+    def hex_distance(self, hex1: Hex, hex2: Hex) -> int:
+        """Calculate the distance between two hexes in the grid.
+        
+        Args:
+            hex1: First hex
+            hex2: Second hex
+            
+        Returns:
+            Integer distance (number of steps) between the hexes
+        """
+        # Convert to cube coordinates
+        # For axial coordinates (x, y) to cube (x, z, y):
+        # cube_x = x
+        # cube_z = y
+        # cube_y = -x-y
+        
+        x1, y1 = hex1.grid_x, hex1.grid_y
+        x2, y2 = hex2.grid_x, hex2.grid_y
+        
+        # Adjust for odd-row offset in our coordinate system
+        if x1 % 2 == 1:
+            y1 = y1 + 0.5
+        if x2 % 2 == 1:
+            y2 = y2 + 0.5
+            
+        # Convert to cube coordinates
+        x1_cube, z1_cube = x1, y1
+        y1_cube = -x1_cube - z1_cube
+        
+        x2_cube, z2_cube = x2, y2
+        y2_cube = -x2_cube - z2_cube
+        
+        # Calculate distance in cube coordinates
+        distance = max(
+            abs(x1_cube - x2_cube),
+            abs(y1_cube - y2_cube),
+            abs(z1_cube - z2_cube)
+        )
+        
+        # Round to nearest integer (should already be an integer or very close)
+        return round(distance)
+    
+    def get_hexes_at_distance(self, center_hex: Hex, distance: int) -> List[Hex]:
+        """Get all hexes that are exactly the specified distance from the center hex.
+        
+        Args:
+            center_hex: The center hex
+            distance: The distance from the center
+            
+        Returns:
+            List of hexes at the specified distance
+        """
+        result = []
+        
+        for x in range(hex_grid.GRID_WIDTH):
+            for y in range(hex_grid.GRID_HEIGHT):
+                hex = self.hexes[x][y]
+                if self.hex_distance(center_hex, hex) == distance:
+                    result.append(hex)
+        
+        return result
+    
     def pixel_to_hex(self, px: float, py: float) -> Optional[Hex]:
         """Convert pixel coordinates to hex tile.
         
@@ -428,6 +493,171 @@ class Game:
         """
         self.floating_texts.append(FloatingText(text, position, color))
     
+    def get_valid_jump_targets(self, player_hex: Hex) -> List[Hex]:
+        """Get all valid hexes that the player can jump to from their current position.
+        
+        A valid jump target is a hex that:
+        1. Is exactly 2 steps away (a neighbor of a neighbor)
+        2. Is not directly adjacent to the player
+        3. Is in a SOLID state (not cracked, broken, or land)
+        
+        Args:
+            player_hex: The player's current hex
+            
+        Returns:
+            List of valid jump target hexes
+        """
+        # Get all neighbors of the player
+        neighbors = self.get_hex_neighbors(player_hex)
+        
+        # Get all neighbors of neighbors (potential jump targets)
+        potential_targets = set()
+        for neighbor in neighbors:
+            neighbor_neighbors = self.get_hex_neighbors(neighbor)
+            for hex in neighbor_neighbors:
+                # Only add if it's not the player's hex and not directly adjacent to player
+                if hex != player_hex and hex not in neighbors:
+                    potential_targets.add(hex)
+        
+        # Filter to only include SOLID hexes
+        valid_targets = [hex for hex in potential_targets if hex.state == HexState.SOLID]
+        
+        return valid_targets
+    
+    def get_valid_sprint_targets(self, player_hex: Hex) -> List[Tuple[Hex, List[Hex]]]:
+        """Get all valid hexes that the player can sprint to from their current position.
+        
+        A valid sprint target is a hex that:
+        1. Is exactly 3 steps away in a straight line
+        2. Is in a SOLID state (not cracked, broken, or land)
+        3. All hexes in the path must be valid (not LAND)
+        
+        Args:
+            player_hex: The player's current hex
+            
+        Returns:
+            List of tuples containing (target_hex, path) where path is the list of hexes from start to end
+        """
+        valid_targets = []
+        
+        # Get all hexes at distance 3
+        distance_3_hexes = self.get_hexes_at_distance(player_hex, 3)
+        
+        # For each potential target, check if it's in a straight line
+        for target in distance_3_hexes:
+            if target.state != HexState.SOLID:
+                continue
+                
+            # Try to find a path in a straight line
+            path = self.find_straight_line_path(player_hex, target)
+            if path and all(hex.state != HexState.LAND for hex in path):
+                valid_targets.append((target, path))
+        
+        return valid_targets
+    
+    def find_straight_line_path(self, start_hex: Hex, end_hex: Hex) -> Optional[List[Hex]]:
+        """Find a straight line path between two hexes if one exists.
+        
+        Args:
+            start_hex: Starting hex
+            end_hex: Ending hex
+            
+        Returns:
+            List of hexes in the path including start and end, or None if no straight line exists
+        """
+        # Check if the hexes are in a straight line by checking if they share a direction
+        # In a hex grid, there are 6 possible directions
+        
+        # Get the grid coordinates
+        start_x, start_y = start_hex.grid_x, start_hex.grid_y
+        end_x, end_y = end_hex.grid_x, end_hex.grid_y
+        
+        # Adjust for odd-row offset in our coordinate system
+        if start_x % 2 == 1:
+            start_y = start_y + 0.5
+        if end_x % 2 == 1:
+            end_y = end_y + 0.5
+        
+        # Calculate the vector between the hexes
+        dx = end_x - start_x
+        dy = end_y - start_y
+        
+        # Check if the distance is exactly 3
+        distance = self.hex_distance(start_hex, end_hex)
+        if distance != 3:
+            return None
+        
+        # Check if it's a straight line by seeing if the ratio of dx to dy matches one of the 6 directions
+        # The 6 directions in a hex grid are:
+        # (1,0), (0.5,0.75), (-0.5,0.75), (-1,0), (-0.5,-0.75), (0.5,-0.75)
+        
+        # Normalize the vector
+        length = (dx**2 + dy**2)**0.5
+        if length == 0:
+            return None
+            
+        dx_norm = dx / length
+        dy_norm = dy / length
+        
+        # Define the 6 directions (normalized)
+        directions = [
+            (1, 0),                    # East
+            (0.5, 0.866),              # Northeast
+            (-0.5, 0.866),             # Northwest
+            (-1, 0),                   # West
+            (-0.5, -0.866),            # Southwest
+            (0.5, -0.866)              # Southeast
+        ]
+        
+        # Check if our normalized vector is close to any of these directions
+        is_straight = False
+        for dir_x, dir_y in directions:
+            # Calculate dot product to check alignment
+            dot_product = dx_norm * dir_x + dy_norm * dir_y
+            if dot_product > 0.95:  # Allow some small error
+                is_straight = True
+                break
+                
+        if not is_straight:
+            return None
+        
+        # Now find the intermediate hexes
+        path = [start_hex]
+        
+        # Find the two intermediate hexes
+        for step in range(1, 3):
+            # Calculate the position at this step
+            ratio = step / 3.0
+            intermediate_x = start_x + dx * ratio
+            intermediate_y = start_y + dy * ratio
+            
+            # Find the nearest hex to this position
+            nearest_hex = None
+            min_distance = float('inf')
+            
+            # Check all hexes at distance 'step' from start
+            hexes_at_distance = self.get_hexes_at_distance(start_hex, step)
+            for hex in hexes_at_distance:
+                hex_x, hex_y = hex.grid_x, hex.grid_y
+                if hex_x % 2 == 1:
+                    hex_y = hex_y + 0.5
+                
+                # Calculate distance to the ideal position
+                dist = ((hex_x - intermediate_x)**2 + (hex_y - intermediate_y)**2)**0.5
+                if dist < min_distance:
+                    min_distance = dist
+                    nearest_hex = hex
+            
+            if nearest_hex:
+                path.append(nearest_hex)
+            else:
+                return None
+        
+        # Add the end hex
+        path.append(end_hex)
+        
+        return path
+    
     def _handle_click(self, pos: Tuple[int, int], current_time: float) -> None:
         """Handle a mouse click at the given position.
         
@@ -467,7 +697,7 @@ class Game:
             # Check if clicked on player's hex (STOMP action)
             if self.player and clicked_hex == self.player.current_hex:
                 print("STOMP! Breaking player hex first, then adjacent hexes")
-                # Create floating text for STOMP action
+                # Create floating text for STOMP action - no "CRACK" text for STOMP
                 self.add_floating_text("STOMP!", self.player.current_hex.center, (255, 0, 0))
                 
                 # Apply screen shake effect
@@ -485,10 +715,35 @@ class Game:
                     clicked_hex.break_ice()
                     # Schedule the surrounding hexes to crack/break after a delay
                     self.schedule_surrounding_hex_effects(clicked_hex, neighbors, current_time)
-            # Move player to adjacent hex
-            elif self.player and not self.player.is_moving:
-                # Try to move player to the clicked hex
-                self.player.move(clicked_hex, current_time)
+            else:
+                # Check if player is already moving
+                if self.player and self.player.is_moving:
+                    return
+                
+                # Check for SPRINT action (3 hexes away in a straight line)
+                if self.player:
+                    sprint_targets = self.get_valid_sprint_targets(self.player.current_hex)
+                    for target, path in sprint_targets:
+                        if clicked_hex == target:
+                            print(f"SPRINT to ({target.grid_x}, {target.grid_y})")
+                            self.player.sprint(path, current_time)
+                            return
+                
+                # Check for JUMP action (2 hexes away)
+                if self.player:
+                    valid_jump_targets = self.get_valid_jump_targets(self.player.current_hex)
+                    if clicked_hex in valid_jump_targets:
+                        # Perform JUMP maneuver
+                        self.perform_jump(clicked_hex, current_time)
+                        return
+                
+                # Regular move to adjacent hex
+                if self.player:
+                    # Check if the clicked hex is adjacent to the player
+                    adjacent_hexes = self.get_hex_neighbors(self.player.current_hex)
+                    if clicked_hex in adjacent_hexes:
+                        # Try to move player to the clicked hex
+                        self.player.move(clicked_hex, current_time)
     
     def _draw(self, current_time: float) -> None:
         """Draw the game state.
@@ -655,4 +910,42 @@ class Game:
         # Clear pending effects
         self.has_pending_hex_effects = False
         self.pending_hex_effects = []
-        self.center_hex_for_effects = None 
+        self.center_hex_for_effects = None
+    
+    def perform_jump(self, target_hex: Hex, current_time: float) -> None:
+        """Perform a jump maneuver to a hex that is exactly 2 steps away.
+        
+        Args:
+            target_hex: The target hex to jump to
+            current_time: Current game time in seconds
+        """
+        if not self.player or self.player.is_moving:
+            return
+            
+        # Store the launch hex for later
+        launch_hex = self.player.current_hex
+        
+        # Start cracking the launch hex immediately if it's SOLID
+        if launch_hex.state == HexState.SOLID:
+            launch_hex.crack([])
+        elif launch_hex.state == HexState.CRACKED:
+            launch_hex.break_ice()
+        
+        # Add floating text for LEAP
+        self.add_floating_text("LEAP!", self.player.current_hex.center, (255, 50, 50))
+        
+        # Define callback for when jump animation completes
+        def on_jump_complete():
+            # Crack or break the landing hex
+            if target_hex.state == HexState.SOLID:
+                target_hex.crack([])
+            elif target_hex.state == HexState.CRACKED:
+                target_hex.break_ice()
+        
+        # Store the callback to be executed when animation completes
+        self.player.on_animation_complete = on_jump_complete
+        
+        # Execute the jump using the new jump method
+        self.player.jump(target_hex, current_time)
+        
+        print(f"JUMP from ({launch_hex.grid_x}, {launch_hex.grid_y}) to ({target_hex.grid_x}, {target_hex.grid_y})") 
