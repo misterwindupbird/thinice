@@ -55,7 +55,6 @@ class AnimationConfig:
     """Animation timing configuration."""
     BREAKING_DURATION: float = 0.3
     CRACKING_DURATION: float = 0.4
-    ENABLE_PARTICLES: bool = False  # Disable particles by default
 
 @dataclass
 class LandConfig:

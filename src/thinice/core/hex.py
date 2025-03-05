@@ -1458,7 +1458,7 @@ class Hex:
         # Create a mask from the hex shape
         hex_mask = pygame.mask.from_surface(hex_mask_surface)
         
-        # 1. Create a surface for the water (bottom layer)
+        # Create a surface for the water (bottom layer)
         water_surface = pygame.Surface((width, height), pygame.SRCALPHA)
         
         # Draw water with alpha based on transition progress
@@ -1467,55 +1467,7 @@ class Hex:
             water_color_with_alpha = (*water.BASE_COLOR, water_alpha)
             pygame.draw.polygon(water_surface, water_color_with_alpha, local_vertices)
         
-        # 2. Create a surface for the particles (middle layer) - only if particles are enabled
-        particle_surface = pygame.Surface((width, height), pygame.SRCALPHA)
-        
-        if animation.ENABLE_PARTICLES:
-            # Create a mask for SOLID/CRACKED hexes to prevent particles from appearing on top of them
-            if non_broken_hexes:
-                # Create a mask surface
-                neighbor_mask_surface = pygame.Surface((width, height), pygame.SRCALPHA)
-                neighbor_mask_surface.fill((0, 0, 0, 0))  # Start with fully transparent
-                
-                # Draw all non-broken (SOLID/CRACKED) hexes as opaque areas in the mask
-                for hex_tile in non_broken_hexes:
-                    if hex_tile.state in [HexState.SOLID, HexState.CRACKED]:
-                        # Only mask if the hex is close enough to potentially overlap with particles
-                        dx = hex_tile.center[0] - self.center[0]
-                        dy = hex_tile.center[1] - self.center[1]
-                        distance = (dx**2 + dy**2)**0.5
-                        
-                        if distance < hex_grid.RADIUS * 3:  # Only consider nearby hexes
-                            # Draw the hex shape in the mask
-                            mask_vertices = [(x - offset_x, y - offset_y) for x, y in hex_tile.vertices]
-                            pygame.draw.polygon(neighbor_mask_surface, (0, 0, 0, 255), mask_vertices)
-            
-            # Draw all particles on the particle surface
-            for particle in self.particles:
-                particle.draw(particle_surface, -offset_x, -offset_y)
-            
-            # Apply the hex mask to the particle surface to keep particles within the hex
-            particle_array = pygame.surfarray.pixels_alpha(particle_surface)
-            hex_mask_array = pygame.surfarray.pixels_alpha(hex_mask_surface)
-            
-            # Only keep particles where the hex mask is set
-            particle_array[:] = numpy.minimum(particle_array, hex_mask_array)
-            
-            # Apply the neighbor mask to the particle surface if we have non-broken hexes
-            if non_broken_hexes:
-                # Convert surfaces to pixel arrays for manipulation
-                neighbor_mask_array = pygame.surfarray.pixels_alpha(neighbor_mask_surface)
-                
-                # Zero out particle alpha where neighbor mask is opaque
-                particle_array[:] = numpy.where(neighbor_mask_array > 0, 0, particle_array)
-            
-            # Clean up to release surface locks
-            del particle_array
-            if non_broken_hexes:
-                del neighbor_mask_array
-            del hex_mask_array
-        
-        # 3. Create a surface for the ice (with reduced opacity as it breaks)
+        # Create a surface for the ice (with reduced opacity as it breaks)
         ice_surface = pygame.Surface((width, height), pygame.SRCALPHA)
         
         # Draw the base hex with solid color (no alpha)
@@ -1555,14 +1507,10 @@ class Hex:
         # 1. First the water layer
         screen.blit(water_surface, (offset_x, offset_y))
         
-        # 2. Then the particle layer (only if particles are enabled)
-        if animation.ENABLE_PARTICLES:
-            screen.blit(particle_surface, (offset_x, offset_y))
-        
-        # 3. Then the ice layer
+        # 2. Then the ice layer
         screen.blit(ice_surface, (offset_x, offset_y))
         
-        # 4. Finally, draw the cracks on top of everything to ensure visibility
+        # 3. Finally, draw the cracks on top of everything to ensure visibility
         screen.blit(crack_surface, (offset_x, offset_y))
         
         # Update fragment positions based on transition progress
