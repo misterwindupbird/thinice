@@ -16,6 +16,10 @@ logging.basicConfig(
 )
 
 @dataclass
+class GameSettings:
+    SHIFT_CLICK_ACTION = "enemy"
+
+@dataclass
 class DisplayConfig:
     """Display-related configuration."""
     WINDOW_WIDTH: int = 1200
@@ -23,7 +27,7 @@ class DisplayConfig:
     BACKGROUND_COLOR: Tuple[int, int, int] = (20, 20, 30)
     FONT_NAME: str = 'Arial'
     FONT_SIZE: int = 10
-    DRAW_OVERLAY: bool = False
+    DRAW_OVERLAY: bool = True
     font: pygame.font.Font = None
 
 
@@ -70,6 +74,7 @@ class LandConfig:
     COLOR_VARIATION: int = 20  # Variation in green shades
 
 # Create global instances
+game_settings = GameSettings()
 display = DisplayConfig()
 hex_grid = HexConfig()
 crack = CrackConfig()

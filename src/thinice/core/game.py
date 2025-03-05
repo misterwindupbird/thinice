@@ -145,6 +145,7 @@ class Game:
         
         # Initialize player on a random SOLID hex
         self.player = self._init_player()
+        self.enemies = []
         
         # List to store active floating text animations
         self.floating_texts = []
@@ -673,24 +674,27 @@ class Game:
             return
             
         if self.shift_pressed:
-            # SHIFT-CLICK: Break ice
-            # Don't break the hex if the player is standing on it
-            logging.info(f"SHIFT-CLICK at ({clicked_hex.grid_x}, {clicked_hex.grid_y})")
-            if self.player and clicked_hex == self.player.current_hex:
-                return
-            
-            # Handle ice-breaking behavior
-            neighbors = self.get_hex_neighbors(clicked_hex)
-            
-            # Handle state transitions
-            if clicked_hex.state == HexState.SOLID:
-                clicked_hex.crack(neighbors)
-                # Create floating text for CRACK action
-                self.add_floating_text("CRACK!", clicked_hex.center, (255, 70, 70))
-            elif clicked_hex.state == HexState.CRACKED:
-                clicked_hex.break_ice()
-                # Create floating text for BREAK action
-                self.add_floating_text("BREAK!", clicked_hex.center, (255, 30, 30))
+            logging.info(f"SHIFT-CLICK at ({clicked_hex.grid_x}, {clicked_hex.grid_y}). "
+                         f"Action={settings.game_settings.SHIFT_CLICK_ACTION}")
+            match settings.game_settings.SHIFT_CLICK_ACTION:
+                case "break":
+                    # Don't break the hex if the player is standing on it
+                    if self.player and clicked_hex == self.player.current_hex:
+                        return
+
+                    # Handle state transitions
+                    if clicked_hex.state == HexState.SOLID:
+                        clicked_hex.crack(neighbors=self.get_hex_neighbors(clicked_hex))
+                        # Create floating text for CRACK action
+                        self.add_floating_text("CRACK!", clicked_hex.center, (255, 70, 70))
+                    elif clicked_hex.state == HexState.CRACKED:
+                        clicked_hex.break_ice()
+                        # Create floating text for BREAK action
+                        self.add_floating_text("BREAK!", clicked_hex.center, (255, 30, 30))
+                case "enemy":
+                    # Create an enemy is there isn't one on the hex, remove it if there is one.
+
+                    pass
         else:
             # REGULAR CLICK
             # Check if clicked on player's hex (STOMP action)
@@ -896,13 +900,9 @@ class Game:
                         neighbors_for_crack.append(neighbor)
                 
                 hex.crack(neighbors_for_crack)  # Pass neighbors to connect cracks
-                # Create smaller floating text for surrounding cracks
-                self.add_floating_text("crack", hex.center, (255, 100, 100))
             elif hex.state == HexState.CRACKED:
                 hex.break_ice()
-                # Create smaller floating text for surrounding breaks
-                self.add_floating_text("break", hex.center, (255, 70, 70))
-        
+
         # Clear pending effects
         self.has_pending_hex_effects = False
         self.pending_hex_effects = []
@@ -928,7 +928,7 @@ class Game:
             launch_hex.break_ice()
         
         # Add floating text for LEAP
-        self.add_floating_text("LEAP!", self.player.current_hex.center, (255, 50, 50))
+        self.add_floating_text("JUMP!", self.player.current_hex.center, (255, 50, 50))
         
         # Define callback for when jump animation completes
         def on_jump_complete():

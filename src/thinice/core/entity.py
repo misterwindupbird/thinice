@@ -62,18 +62,13 @@ class Entity(ABC):
         Returns:
             True if movement started, False if invalid move
         """
-        # Check if target is adjacent to current hex
-        if target_hex not in self.get_adjacent_hexes():
-            return False
-            
-        # Check if target is broken
-        if target_hex.is_broken():
-            return False
-            
         # Start animation
         self.target_hex = target_hex
         self.is_moving = True
         self.animation_start_time = current_time
+        self.animation_duration = 0.3  # Regular move is faster
+        self.animation_type = "move"
+
         self.move_start_pos = self.current_hex.center
         self.move_end_pos = target_hex.center
         
@@ -81,7 +76,7 @@ class Entity(ABC):
         self.on_move_start()
         
         return True
-    
+
     def on_move_start(self) -> None:
         """Called when movement starts. Can be overridden by subclasses."""
         pass
@@ -171,25 +166,7 @@ class Player(Entity):
         self.sprint_current_index = 0  # Current position in the sprint path
         self.sprint_next_time = 0  # Time to move to next hex in sprint
     
-    def move(self, target_hex, current_time):
-        """Move the player to a target hex.
-        
-        Args:
-            target_hex: The target hex to move to
-            current_time: Current game time in seconds
-        """
-        # Start animation
-        self.target_hex = target_hex
-        self.is_moving = True
-        self.animation_start_time = current_time
-        self.animation_duration = 0.3  # Regular move is faster
-        self.move_start_pos = self.current_hex.center
-        self.move_end_pos = target_hex.center
-        self.animation_type = "move"
-        
-        # Call the on_move_start method to create floating text
-        self.on_move_start()
-    
+
     def jump(self, target_hex, current_time):
         """Perform a jump to a target hex that is 2 steps away.
         
@@ -247,34 +224,34 @@ class Player(Entity):
             self._update_sprint(current_time)
         else:
             self._update_regular_animation(current_time)
-    
+
     def _update_regular_animation(self, current_time):
         """Update regular move or jump animation.
-        
+
         Args:
             current_time: Current game time in seconds
         """
         # Calculate progress (0.0 to 1.0)
         elapsed = current_time - self.animation_start_time
         progress = min(1.0, elapsed / self.animation_duration)
-        
+
         # Interpolate position
         self.position = (
             self.move_start_pos[0] + (self.move_end_pos[0] - self.move_start_pos[0]) * progress,
             self.move_start_pos[1] + (self.move_end_pos[1] - self.move_start_pos[1]) * progress
         )
-        
+
         # Check if animation is complete
         if progress >= 1.0:
             self.is_moving = False
             self.current_hex = self.target_hex
             self.position = self.current_hex.center
-            
+
             # Call the on_animation_complete callback if it exists
             if hasattr(self, 'on_animation_complete') and self.on_animation_complete:
                 self.on_animation_complete()
                 self.on_animation_complete = None
-            
+
             self.animation_type = "none"
     
     def _update_sprint(self, current_time):
@@ -287,10 +264,10 @@ class Player(Entity):
         game_instance = self._get_game_instance()
         if game_instance:
             game_instance.add_floating_text("MOVE", self.current_hex.center, (255, 100, 100))
-    
+
     def draw(self, screen: pygame.Surface, current_time: float, scroll_x: float = 0, scroll_y: float = 0) -> None:
         """Draw the player with special animations for jumping.
-        
+
         Args:
             screen: Pygame surface to draw on
             current_time: Current game time in seconds
@@ -300,14 +277,14 @@ class Player(Entity):
         # Calculate position based on animation
         if self.is_moving:
             progress = min(1.0, (current_time - self.animation_start_time) / self.animation_duration)
-            
+
             # Custom ease-in function: progress^3 for slow start and abrupt stop
             eased_progress = progress ** 3
-            
+
             # Interpolate between start and end positions
             x = self.move_start_pos[0] * (1 - eased_progress) + self.move_end_pos[0] * eased_progress
             y = self.move_start_pos[1] * (1 - eased_progress) + self.move_end_pos[1] * eased_progress
-            
+
             # Remove any jump arc
             # Check if animation is complete
             if progress >= 1.0:
@@ -315,19 +292,32 @@ class Player(Entity):
                 self.current_hex = self.target_hex
                 self.target_hex = None
                 x, y = self.current_hex.center
-                
+
                 # Call the animation complete callback if it exists
                 if self.on_animation_complete:
                     self.on_animation_complete()
                     self.on_animation_complete = None
         else:
             x, y = self.current_hex.center
-        
+
         # Draw the player as a circle with the glyph
         pygame.draw.circle(screen, self.color, (x, y), self.radius)
-        
+
         # Draw the glyph in white for better visibility
         font = pygame.font.SysFont(display.FONT_NAME, int(self.radius * 1.5))
         text = font.render(self.glyph, True, (255, 255, 255))  # White text
         text_rect = text.get_rect(center=(x, y))
         screen.blit(text, text_rect)
+
+
+class Wolf(Entity):
+    """Player entity that can move between hex tiles."""
+
+    def __init__(self, start_hex):
+        """Initialize the player entity.
+
+        Args:
+            start_hex: The starting hex tile
+        """
+        super().__init__(start_hex, "W", (255, 100, 100))
+        self.animation_type = "none"  # Track the type of animation: "none", "move", "jump", "sprint"
