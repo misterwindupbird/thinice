@@ -994,7 +994,8 @@ class Game:
             from .pathfinding import a_star # avoid circular dependencies
             path = a_star(enemy.current_hex, self.player.current_hex)
             logging.info(f'{path=}')
-            enemy.move(target_hex=path[1], current_time=current_time)
+            if path is not None and len(path) > 1:
+                enemy.move(target_hex=path[1], current_time=current_time)
 
         if self.animation_manager.blocking_animations == 0:
             self.game_state = GameState.PLAYER

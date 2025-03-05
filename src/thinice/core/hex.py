@@ -252,6 +252,15 @@ class Hex:
         self.transition_progress = 0.0  # 0.0 to 1.0
         self.original_fragment_positions = []  # To store initial positions for animation
         self.animation_manager = animation_manager
+
+    def __eq__(self, other):
+        return isinstance(other, Hex) and self.grid_x == other.grid_x and self.grid_y == other.grid_y
+
+    def __hash__(self):
+        return hash((self.grid_x, self.grid_y))
+
+    def __repr__(self):
+        return f"HEX({self.grid_x}, {self.grid_y})"
         
     def _init_color(self) -> Tuple[int, int, int]:
         """Initialize the color of the hex tile with slight variations."""

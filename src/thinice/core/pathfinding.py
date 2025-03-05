@@ -28,6 +28,13 @@ def a_star(start_hex: Hex,
         logging.error("Game instance not available for pathfinding")
         return None
 
+    # can't move into occupied or to-be-occupied hexes
+    occupied = set()
+    for enemy in game.enemies:
+        occupied.add(enemy.current_hex)
+        if enemy.target_hex is not None:
+            occupied.add(enemy.target_hex)
+
     # Initialize the open and closed sets
     open_set: List[Tuple[float, int, Hex]] = []  # (f_score, counter, hex)
     counter = 0  # Used as a tiebreaker for equal f_scores
@@ -73,6 +80,10 @@ def a_star(start_hex: Hex,
             if neighbor in closed_set:
                 continue
 
+            # Don't consider occupied hexes
+            if neighbor in occupied:
+                continue
+
             # Calculate tentative g_score
             tentative_g_score = g_score[current] + 1  # Cost is 1 for each step
 
@@ -89,34 +100,4 @@ def a_star(start_hex: Hex,
                     counter += 1
 
     # If we get here, no path was found
-    return None
-
-
-def find_nearest_valid_hex(start_hex: Hex,
-                           valid_states: List[HexState] = [HexState.SOLID, HexState.CRACKED],
-                           max_distance: int = 10) -> Optional[Hex]:
-    """Find the nearest hex in a valid state.
-
-    Args:
-        start_hex: The starting hex
-        valid_states: List of hex states that are valid
-        max_distance: Maximum search distance
-
-    Returns:
-        The nearest valid hex, or None if none found within max_distance
-    """
-    game = Game.instance
-    if not game:
-        logging.error("Game instance not available for pathfinding")
-        return None
-
-    # Check hexes in increasing distance
-    for distance in range(1, max_distance + 1):
-        hexes_at_distance = game.get_hexes_at_distance(start_hex, distance)
-        valid_hexes = [hex for hex in hexes_at_distance if hex.state in valid_states]
-
-        if valid_hexes:
-            # Return the first valid hex found
-            return valid_hexes[0]
-
     return None
