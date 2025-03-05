@@ -106,7 +106,36 @@ class Entity(ABC):
         if 'src.thinice.core.game' in sys.modules:
             return sys.modules['src.thinice.core.game'].Game.instance
         return None
-    
+
+    def _update_regular_animation(self, current_time):
+        """Update regular move or jump animation.
+
+        Args:
+            current_time: Current game time in seconds
+        """
+        # Calculate progress (0.0 to 1.0)
+        elapsed = current_time - self.animation_start_time
+        progress = min(1.0, elapsed / self.animation_duration)
+
+        # Interpolate position
+        self.position = (
+            self.move_start_pos[0] + (self.move_end_pos[0] - self.move_start_pos[0]) * progress,
+            self.move_start_pos[1] + (self.move_end_pos[1] - self.move_start_pos[1]) * progress
+        )
+
+        # Check if animation is complete
+        if progress >= 1.0:
+            self.is_moving = False
+            self.current_hex = self.target_hex
+            self.position = self.current_hex.center
+
+            # Call the on_animation_complete callback if it exists
+            if hasattr(self, 'on_animation_complete') and self.on_animation_complete:
+                self.on_animation_complete()
+                self.on_animation_complete = None
+
+            self.animation_type = "none"
+
     def draw(self, screen: pygame.Surface, current_time: float, scroll_x: float = 0, scroll_y: float = 0) -> None:
         """Draw the entity on the screen.
         
@@ -225,34 +254,6 @@ class Player(Entity):
         else:
             self._update_regular_animation(current_time)
 
-    def _update_regular_animation(self, current_time):
-        """Update regular move or jump animation.
-
-        Args:
-            current_time: Current game time in seconds
-        """
-        # Calculate progress (0.0 to 1.0)
-        elapsed = current_time - self.animation_start_time
-        progress = min(1.0, elapsed / self.animation_duration)
-
-        # Interpolate position
-        self.position = (
-            self.move_start_pos[0] + (self.move_end_pos[0] - self.move_start_pos[0]) * progress,
-            self.move_start_pos[1] + (self.move_end_pos[1] - self.move_start_pos[1]) * progress
-        )
-
-        # Check if animation is complete
-        if progress >= 1.0:
-            self.is_moving = False
-            self.current_hex = self.target_hex
-            self.position = self.current_hex.center
-
-            # Call the on_animation_complete callback if it exists
-            if hasattr(self, 'on_animation_complete') and self.on_animation_complete:
-                self.on_animation_complete()
-                self.on_animation_complete = None
-
-            self.animation_type = "none"
     
     def _update_sprint(self, current_time):
         """This method is no longer needed and has been removed."""
