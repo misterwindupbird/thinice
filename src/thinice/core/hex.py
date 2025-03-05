@@ -209,99 +209,6 @@ class IceFragment(pygame.sprite.Sprite):
         # Update the image
         self.image = new_surface
 
-class IceParticle:
-    """Small ice particle that sinks into the water during breaking animation."""
-    
-    def __init__(self, x: float, y: float, size: float, color: Tuple[int, int, int]):
-        self.x = x
-        self.y = y
-        self.size = size
-        self.original_size = size
-        self.color = color
-        self.alpha = 255
-        # Small random movement on the surface
-        self.speed_x = random.uniform(-0.15, 0.15)  # Even slower movement
-        self.speed_y = random.uniform(-0.15, 0.15)  # Even slower movement
-        # Sinking speed (z-axis represented by scaling and alpha)
-        self.sink_speed = random.uniform(0.0005, 0.002)  # Even slower sinking
-        self.sink_progress = 0.0  # 0.0 to 1.0
-        # Add a delay before sinking starts
-        self.sink_delay = random.uniform(0, 1.0)  # Longer random delay
-        self.rotation = random.uniform(0, 360)
-        self.rotation_speed = random.uniform(-0.5, 0.5)  # Slower rotation
-        self.alive = True
-        
-    def update(self, dt: float):
-        """Update particle position, scale, and alpha to simulate sinking."""
-        # Small random movement on the water surface
-        self.x += self.speed_x
-        self.y += self.speed_y
-        
-        # Slow down surface movement as it sinks
-        self.speed_x *= 0.99
-        self.speed_y *= 0.99
-        
-        # Update rotation
-        self.rotation += self.rotation_speed
-        
-        # Handle sink delay
-        if self.sink_delay > 0:
-            self.sink_delay -= dt
-            return
-            
-        # Update sinking progress
-        self.sink_progress += self.sink_speed
-        if self.sink_progress >= 1.0:
-            self.alive = False
-            return
-            
-        # Scale down as it sinks (z-axis effect)
-        self.size = self.original_size * (1.0 - self.sink_progress * 0.7)  # Slower size reduction
-        
-        # Keep alpha at full opacity (255) instead of fading out
-        self.alpha = 255
-            
-    def draw(self, surface: pygame.Surface, offset_x: float, offset_y: float):
-        """Draw the particle on the surface."""
-        if not self.alive or self.size < 0.5:  # Don't draw tiny particles
-            return
-            
-        # Create a small surface for the particle
-        particle_surf = pygame.Surface((int(self.size * 3), int(self.size * 3)), pygame.SRCALPHA)
-        
-        # Draw a small polygon (ice shard) - more ice-like shape
-        if random.random() < 0.7:  # 70% chance for irregular polygon (ice shard)
-            points = []
-            num_points = random.randint(4, 6)  # More points for more complex shapes
-            for i in range(num_points):
-                angle = math.radians(self.rotation + (i * 360 / num_points))
-                # Vary the radius to create more irregular shapes
-                radius = self.size * random.uniform(0.7, 1.3)
-                px = self.size * 1.5 + math.cos(angle) * radius
-                py = self.size * 1.5 + math.sin(angle) * radius
-                points.append((px, py))
-                
-            # Draw the polygon with the particle's alpha
-            color_with_alpha = (*self.color, self.alpha)
-            pygame.draw.polygon(particle_surf, color_with_alpha, points)
-        else:  # 30% chance for simple rectangle (ice flake)
-            width = random.uniform(self.size * 0.5, self.size * 1.5)
-            height = random.uniform(self.size * 0.5, self.size * 1.5)
-            x = self.size * 1.5 - width/2
-            y = self.size * 1.5 - height/2
-            
-            # Rotate the rectangle
-            rotated_surf = pygame.Surface((int(width), int(height)), pygame.SRCALPHA)
-            color_with_alpha = (*self.color, self.alpha)
-            pygame.draw.rect(rotated_surf, color_with_alpha, (0, 0, width, height))
-            rotated_surf = pygame.transform.rotate(rotated_surf, self.rotation)
-            
-            # Blit the rotated rectangle to the particle surface
-            rect = rotated_surf.get_rect(center=(self.size * 1.5, self.size * 1.5))
-            particle_surf.blit(rotated_surf, rect)
-        
-        # Blit to the main surface
-        surface.blit(particle_surf, (int(self.x - self.size * 1.5 + offset_x), int(self.y - self.size * 1.5 + offset_y)))
 
 class Hex:
     """Represents a hexagonal tile in the game grid."""
@@ -338,9 +245,6 @@ class Hex:
         self.transition_duration = 0.4  # Faster animation (was 1.0 second)
         self.transition_progress = 0.0  # 0.0 to 1.0
         self.original_fragment_positions = []  # To store initial positions for animation
-        
-        # Ice particles for breaking effect
-        self.particles = []
         
     def _init_color(self) -> Tuple[int, int, int]:
         """Initialize the color of the hex tile with slight variations."""
@@ -638,66 +542,7 @@ class Hex:
             center_x = sum(p[0] for p in fragment) / len(fragment)
             center_y = sum(p[1] for p in fragment) / len(fragment)
             self.original_fragment_positions.append((center_x, center_y))
-            
-        # Initialize empty particles list
-        self.particles = []
-        
-        # Only create particles if enabled in settings
-        if animation.ENABLE_PARTICLES:
-            # Create more particles for a more visible effect
-            num_particles_per_unit = 1.0  # Increase density of particles even more
-            
-            for crack in self.cracks:
-                if len(crack.points) < 2:
-                    continue
-                    
-                # Add particles along each crack
-                for i in range(1, len(crack.points)):
-                    p1 = crack.points[i-1]
-                    p2 = crack.points[i]
-                    
-                    # Calculate distance for this segment
-                    distance = ((p2[0] - p1[0])**2 + (p2[1] - p1[1])**2)**0.5
-                    
-                    # Add particles along the line
-                    num_particles = int(distance * num_particles_per_unit)
-                    for j in range(num_particles):
-                        t = j / num_particles
-                        x = p1[0] + (p2[0] - p1[0]) * t
-                        y = p1[1] + (p2[1] - p1[1]) * t
-                        
-                        # Add some randomness to position
-                        x += random.uniform(-3, 3)
-                        y += random.uniform(-3, 3)
-                        
-                        # Create particle
-                        size = random.uniform(2.5, 5.0)  # Even larger particles for better visibility
-                        
-                        # Use a color between ice and water
-                        r = int(self.color[0] * 0.8 + water.BASE_COLOR[0] * 0.2)
-                        g = int(self.color[1] * 0.8 + water.BASE_COLOR[1] * 0.2)
-                        b = int(self.color[2] * 0.8 + water.BASE_COLOR[2] * 0.2)
-                        
-                        self.particles.append(IceParticle(x, y, size, (r, g, b)))
-                        
-            # Add some additional particles scattered around the hex
-            for _ in range(50):  # Add 50 more particles (increased from 30)
-                # Random position within the hex
-                angle = random.uniform(0, 2 * math.pi)
-                distance = random.uniform(0, hex_grid.RADIUS * 0.8)
-                x = self.center[0] + math.cos(angle) * distance
-                y = self.center[1] + math.sin(angle) * distance
-                
-                # Create particle
-                size = random.uniform(2.0, 4.5)  # Larger particles
-                
-                # Use a color closer to ice
-                r = int(self.color[0] * 0.9 + water.BASE_COLOR[0] * 0.1)
-                g = int(self.color[1] * 0.9 + water.BASE_COLOR[1] * 0.1)
-                b = int(self.color[2] * 0.9 + water.BASE_COLOR[2] * 0.1)
-                
-                self.particles.append(IceParticle(x, y, size, (r, g, b)))
-    
+
     def _add_edge_cracks(self) -> None:
         """Add cracks along the perimeter of the hex to detach fragments."""
         # Add cracks along the edges (between vertices)
@@ -1368,22 +1213,6 @@ class Hex:
         # Use a cubic ease-out function for even smoother animation
         # This makes the start of the animation faster and the end slower
         t = 1 - (1 - self.transition_progress) ** 3  # Cubic ease-out for smoother feel
-        
-        # Only update particles if they're enabled
-        if animation.ENABLE_PARTICLES:
-            # Calculate time delta for particle updates
-            dt = 1/60  # Assume 60 FPS
-            
-            # Update particles
-            for particle in self.particles[:]:
-                particle.update(dt)
-                if not particle.alive:
-                    self.particles.remove(particle)
-            
-            # Debug print to verify particles are being created and updated
-            if len(self.particles) > 0 and self.transition_progress < 0.1:
-                print(f"Particles: {len(self.particles)}")
-                print(f"Color type: {type(self.color)}, value: {self.color}")
         
         if self.broken_surface is None or len(self.fragment_sprites) == 0:
             # First time setup - create the broken surface and fragment sprites

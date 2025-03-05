@@ -91,10 +91,14 @@ class GameRestartHandler(FileSystemEventHandler):
         Args:
             event: File system event
         """
-        if event.src_path.endswith('game.py'):
-            print("Game file changed, restarting...")
+        if event.src_path.endswith('.py'):
+            print(f"Python file changed: {event.src_path}, restarting...")
+            # Get the current directory
+            current_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            # Use -m to run as a module instead of a script
             python = sys.executable
-            os.execl(python, python, *sys.argv)
+            os.chdir(current_dir)  # Change to the project root directory
+            os.execl(python, python, "-m", "thinice")
 
 class Game:
     """Main game class managing the game loop and hex grid."""
@@ -114,8 +118,13 @@ class Game:
         # Set up file watcher
         self.observer = None
         if enable_watcher:
+            print("File watcher enabled - game will auto-restart when Python files change")
             self.observer = Observer()
-            self.observer.schedule(GameRestartHandler(), path='.', recursive=False)
+            # Get the src directory path
+            current_file = os.path.abspath(__file__)
+            src_dir = os.path.dirname(os.path.dirname(os.path.dirname(current_file)))
+            print(f"Watching for changes in: {src_dir}")
+            self.observer.schedule(GameRestartHandler(), path=src_dir, recursive=True)
             self.observer.start()
         
         # Initialize display
