@@ -2,6 +2,18 @@
 from dataclasses import dataclass
 from typing import Tuple
 import pygame
+import logging
+
+# Configure logging
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(module)s:%(lineno)d %(levelname)s %(asctime)s: %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S',
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler('game.log', mode='a')
+    ]
+)
 
 @dataclass
 class DisplayConfig:

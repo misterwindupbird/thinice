@@ -4,6 +4,7 @@ import math
 import pygame
 from typing import Tuple, Optional, Any
 import time
+import logging
 
 from .hex import Hex
 from .hex_state import HexState
@@ -63,12 +64,10 @@ class Entity(ABC):
         """
         # Check if target is adjacent to current hex
         if target_hex not in self.get_adjacent_hexes():
-            print(f"Cannot move to non-adjacent hex ({target_hex.grid_x}, {target_hex.grid_y})")
             return False
             
         # Check if target is broken
         if target_hex.is_broken():
-            print(f"Cannot move to broken hex ({target_hex.grid_x}, {target_hex.grid_y})")
             return False
             
         # Start animation
@@ -81,7 +80,6 @@ class Entity(ABC):
         # Signal that movement has started (for floating text)
         self.on_move_start()
         
-        print(f"Moving from ({self.current_hex.grid_x}, {self.current_hex.grid_y}) to ({target_hex.grid_x}, {target_hex.grid_y})")
         return True
     
     def on_move_start(self) -> None:
@@ -157,9 +155,6 @@ class Entity(ABC):
         text = font.render(self.glyph, True, (255, 255, 255))  # White text for better visibility
         text_rect = text.get_rect(center=(x, y))
         screen.blit(text, text_rect)
-        
-        # Debug print to verify drawing
-        print(f"Drawing entity at ({x}, {y}) with glyph {self.glyph}")
         
 class Player(Entity):
     """Player entity that can move between hex tiles."""
@@ -336,6 +331,3 @@ class Player(Entity):
         text = font.render(self.glyph, True, (255, 255, 255))  # White text
         text_rect = text.get_rect(center=(x, y))
         screen.blit(text, text_rect)
-        
-        # Debug print to confirm drawing
-        # print(f"Drawing player at ({self.current_hex.grid_x}, {self.current_hex.grid_y})") 

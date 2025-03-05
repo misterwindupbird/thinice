@@ -7,11 +7,15 @@ from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 import sys
 import random
+import logging
 
 from .hex import Hex
 from .hex_state import HexState
 from .entity import Entity, Player
-from ..config.settings import display, hex_grid, land
+from ..config import settings
+
+# Add a test logging statement to verify logging is working
+logging.info("Logging test: Game started")
 
 class FloatingText:
     """Animated floating text that moves up and fades out."""
@@ -31,11 +35,11 @@ class FloatingText:
         self.start_time = pygame.time.get_ticks() / 1000.0
         self.duration = 1.2  # Total animation duration in seconds
         self.is_active = True
-        self.font = pygame.font.SysFont(display.FONT_NAME, 24, bold=True)
+        self.font = pygame.font.SysFont(settings.display.FONT_NAME, 24, bold=True)
         
         # Create a glow surface (slightly larger text in a different color)
         self.glow_color = (color[0], min(255, color[1] + 50), min(255, color[2] + 50), 150)
-        self.glow_font = pygame.font.SysFont(display.FONT_NAME, 26, bold=True)
+        self.glow_font = pygame.font.SysFont(settings.display.FONT_NAME, 26, bold=True)
         
         # Start position slightly above the entity
         self.position[1] -= 30  # Start 30 pixels above the entity
@@ -92,7 +96,6 @@ class GameRestartHandler(FileSystemEventHandler):
             event: File system event
         """
         if event.src_path.endswith('.py'):
-            print(f"Python file changed: {event.src_path}, restarting...")
             # Get the current directory
             current_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
             # Use -m to run as a module instead of a script
@@ -118,12 +121,10 @@ class Game:
         # Set up file watcher
         self.observer = None
         if enable_watcher:
-            print("File watcher enabled - game will auto-restart when Python files change")
             self.observer = Observer()
             # Get the src directory path
             current_file = os.path.abspath(__file__)
             src_dir = os.path.dirname(os.path.dirname(os.path.dirname(current_file)))
-            print(f"Watching for changes in: {src_dir}")
             self.observer.schedule(GameRestartHandler(), path=src_dir, recursive=True)
             self.observer.start()
         
@@ -164,8 +165,6 @@ class Game:
         # Debug visualization
         self.show_jump_targets = False  # Set to False to hide valid jump targets
         
-        print(f"World dimensions: ({self.world_width}, {self.world_height})")
-    
     def _init_display(self) -> None:
         """Initialize the game display."""
         # Use tkinter to get screen info
@@ -181,9 +180,9 @@ class Game:
         pygame.font.init()
         
         # Set up display
-        self.screen = pygame.display.set_mode((display.WINDOW_WIDTH, display.WINDOW_HEIGHT))
+        self.screen = pygame.display.set_mode((settings.display.WINDOW_WIDTH, settings.display.WINDOW_HEIGHT))
         pygame.display.set_caption("Hex Grid")
-        display.font = pygame.font.SysFont(display.FONT_NAME, display.FONT_SIZE)
+        settings.display.font = pygame.font.SysFont(settings.display.FONT_NAME, settings.display.FONT_SIZE)
     
     def _init_hex_grid(self) -> None:
         """Initialize the hex grid.
@@ -195,25 +194,25 @@ class Game:
         - The rest are SOLID with blue-grey gradient
         """
         # Set grid dimensions to fit the screen
-        hex_grid.GRID_WIDTH = 21
-        hex_grid.GRID_HEIGHT = 15
+        settings.hex_grid.GRID_WIDTH = 21
+        settings.hex_grid.GRID_HEIGHT = 15
         
         # Calculate hex dimensions
-        hex_height = hex_grid.RADIUS * 1.732  # sqrt(3)
-        spacing_x = hex_grid.RADIUS * 1.5
+        hex_height = settings.hex_grid.RADIUS * 1.732  # sqrt(3)
+        spacing_x = settings.hex_grid.RADIUS * 1.5
         spacing_y = hex_height
         
         # Create hex grid
-        self.hexes = [[None for _ in range(hex_grid.GRID_HEIGHT)] 
-                     for _ in range(hex_grid.GRID_WIDTH)]
+        self.hexes = [[None for _ in range(settings.hex_grid.GRID_HEIGHT)] 
+                     for _ in range(settings.hex_grid.GRID_WIDTH)]
         
         # Calculate world size
-        self.world_width = hex_grid.GRID_WIDTH * spacing_x
-        self.world_height = hex_grid.GRID_HEIGHT * spacing_y + (spacing_y / 2)
+        self.world_width = settings.hex_grid.GRID_WIDTH * spacing_x
+        self.world_height = settings.hex_grid.GRID_HEIGHT * spacing_y + (spacing_y / 2)
         
-        print(f"World size: {self.world_width}x{self.world_height}")
-        print(f"Window size: {display.WINDOW_WIDTH}x{display.WINDOW_HEIGHT}")
-        print(f"Hex radius: {hex_grid.RADIUS}, spacing: {spacing_x}x{spacing_y}")
+        logging.info(f"World size: {self.world_width}x{self.world_height}")
+        logging.info(f"Window size: {settings.display.WINDOW_WIDTH}x{settings.display.WINDOW_HEIGHT}")
+        logging.info(f"Hex radius: {settings.hex_grid.RADIUS}, spacing: {spacing_x}x{spacing_y}")
         
         # Track all LAND hexes for adjacency check later
         visible_area = []
@@ -221,8 +220,8 @@ class Game:
         land_hexes = []
         
         # Create the hex grid with proper world coordinates
-        for x in range(hex_grid.GRID_WIDTH):
-            for y in range(hex_grid.GRID_HEIGHT):
+        for x in range(settings.hex_grid.GRID_WIDTH):
+            for y in range(settings.hex_grid.GRID_HEIGHT):
                 # Calculate center position in world coordinates
                 center_x = x * spacing_x
                 center_y = y * spacing_y
@@ -235,34 +234,31 @@ class Game:
                 is_land = False
                 
                 # Check if the hex is at the edge of the grid
-                if (x == 0 or x == hex_grid.GRID_WIDTH - 1 or 
-                    y == 0 or y == hex_grid.GRID_HEIGHT - 1):
+                if (x == 0 or x == settings.hex_grid.GRID_WIDTH - 1 or 
+                    y == 0 or y == settings.hex_grid.GRID_HEIGHT - 1):
                     is_land = True
                     edge_hexes.append((x, y))
-                    print(f"Grid edge hex at ({x}, {y}), center: ({center_x}, {center_y})")
                 # Check if the hex is not fully visible on screen
-                elif (center_x - hex_grid.RADIUS < 0 or 
-                      center_x + hex_grid.RADIUS > display.WINDOW_WIDTH or
-                      center_y - hex_grid.RADIUS < 0 or 
-                      center_y + hex_grid.RADIUS > display.WINDOW_HEIGHT):
+                elif (center_x - settings.hex_grid.RADIUS < 0 or 
+                      center_x + settings.hex_grid.RADIUS > settings.display.WINDOW_WIDTH or
+                      center_y - settings.hex_grid.RADIUS < 0 or 
+                      center_y + settings.hex_grid.RADIUS > settings.display.WINDOW_HEIGHT):
                     is_land = True
                     edge_hexes.append((x, y))
-                    print(f"Off-screen hex at ({x}, {y}), center: ({center_x}, {center_y})")
                 else:
                     visible_area.append((x, y))
                 
                 # Create the hex with the appropriate state
                 if is_land:
                     # Generate a random green shade for land
-                    base_r, base_g, base_b = land.BASE_COLOR
-                    color_variation = land.COLOR_VARIATION
+                    base_r, base_g, base_b = settings.land.BASE_COLOR
+                    color_variation = settings.land.COLOR_VARIATION
                     r = min(255, max(0, base_r + random.randint(-color_variation, color_variation)))
                     g = min(255, max(0, base_g + random.randint(-color_variation, color_variation)))
                     b = min(255, max(0, base_b + random.randint(-color_variation, color_variation)))
                     color = (r, g, b)
                     self.hexes[x][y] = Hex(center_x, center_y, x, y, color=color, state=HexState.LAND)
                     land_hexes.append((x, y))
-                    print(f"Creating edge LAND hex at ({x}, {y})")
                 else:
                     # Create a regular ice hex with a pure white to blue-grey gradient
                     # No pink/purple tints - pure cool blue-grey only
@@ -291,8 +287,8 @@ class Game:
             
             for x, y in random_land_positions:
                 # Generate a random green shade for land
-                base_r, base_g, base_b = land.BASE_COLOR
-                color_variation = land.COLOR_VARIATION
+                base_r, base_g, base_b = settings.land.BASE_COLOR
+                color_variation = settings.land.COLOR_VARIATION
                 r = min(255, max(0, base_r + random.randint(-color_variation, color_variation)))
                 g = min(255, max(0, base_g + random.randint(-color_variation, color_variation)))
                 b = min(255, max(0, base_b + random.randint(-color_variation, color_variation)))
@@ -302,8 +298,7 @@ class Game:
                 self.hexes[x][y] = Hex(self.hexes[x][y].center[0], self.hexes[x][y].center[1], 
                                       x, y, color=color, state=HexState.LAND)
                 land_hexes.append((x, y))
-                print(f"Creating random LAND hex at ({x}, {y})")
-        
+
         # Second pass: Make hexes adjacent to LAND hexes pure white
         white_hexes_count = 0
         for land_x, land_y in land_hexes:
@@ -331,19 +326,18 @@ class Game:
         """
         # Find all SOLID hexes
         solid_hexes = []
-        for x in range(hex_grid.GRID_WIDTH):
-            for y in range(hex_grid.GRID_HEIGHT):
+        for x in range(settings.hex_grid.GRID_WIDTH):
+            for y in range(settings.hex_grid.GRID_HEIGHT):
                 if self.hexes[x][y].state == HexState.SOLID:
                     solid_hexes.append(self.hexes[x][y])
         
         # Choose a random SOLID hex
         if solid_hexes:
             start_hex = random.choice(solid_hexes)
-            print(f"Player starting at ({start_hex.grid_x}, {start_hex.grid_y})")
             return Player(start_hex)
         else:
             # Fallback to first hex if no SOLID hexes
-            print("Warning: No SOLID hexes found for player start. Using first hex.")
+            logging.warning("Warning: No SOLID hexes found for player start. Using first hex.")
             return Player(self.hexes[0][0])
     
     def get_hex_neighbors(self, hex: Hex) -> List[Hex]:
@@ -367,7 +361,7 @@ class Game:
         # Add all valid neighbors
         for dx, dy in directions:
             nx, ny = hex.grid_x + dx, hex.grid_y + dy
-            if 0 <= nx < hex_grid.GRID_WIDTH and 0 <= ny < hex_grid.GRID_HEIGHT:
+            if 0 <= nx < settings.hex_grid.GRID_WIDTH and 0 <= ny < settings.hex_grid.GRID_HEIGHT:
                 neighbors.append(self.hexes[nx][ny])
         
         return neighbors
@@ -426,8 +420,8 @@ class Game:
         """
         result = []
         
-        for x in range(hex_grid.GRID_WIDTH):
-            for y in range(hex_grid.GRID_HEIGHT):
+        for x in range(settings.hex_grid.GRID_WIDTH):
+            for y in range(settings.hex_grid.GRID_HEIGHT):
                 hex = self.hexes[x][y]
                 if self.hex_distance(center_hex, hex) == distance:
                     result.append(hex)
@@ -454,7 +448,7 @@ class Game:
                 dy = py - hex.center[1]
                 dist = dx*dx + dy*dy
                 
-                if dist < min_dist and dist <= hex_grid.RADIUS * hex_grid.RADIUS:
+                if dist < min_dist and dist <= settings.hex_grid.RADIUS * settings.hex_grid.RADIUS:
                     min_dist = dist
                     nearest_hex = hex
         
@@ -557,17 +551,13 @@ class Game:
             for step in range(3):
                 next_hex = current_hex.get_neighbor(edge_index, self.hexes)
                 if not next_hex or next_hex.state in [HexState.LAND, HexState.BROKEN]:
-                    print(f"Path rejected at step {step+1}: Hex at ({current_hex.grid_x}, {current_hex.grid_y}) is {current_hex.state}")
                     valid_path = False
                     break
                 path.append(next_hex)
                 current_hex = next_hex
             
             if valid_path and path[-1].state == HexState.SOLID:
-                print(f"Valid sprint target found at ({path[-1].grid_x}, {path[-1].grid_y})")
                 valid_targets.append((path[-1], path))
-            else:
-                print(f"Invalid path to ({path[-1].grid_x}, {path[-1].grid_y})")
         
         return valid_targets
     
@@ -686,14 +676,11 @@ class Game:
         if not clicked_hex:
             return
             
-        # Log the clicked hex
-        print(f"Clicked hex at ({clicked_hex.grid_x}, {clicked_hex.grid_y})")
-        
         if self.shift_pressed:
             # SHIFT-CLICK: Break ice
             # Don't break the hex if the player is standing on it
+            logging.info(f"SHIFT-CLICK at ({clicked_hex.grid_x}, {clicked_hex.grid_y})")
             if self.player and clicked_hex == self.player.current_hex:
-                print("Cannot break hex where player is standing!")
                 return
             
             # Handle ice-breaking behavior
@@ -711,8 +698,8 @@ class Game:
         else:
             # REGULAR CLICK
             # Check if clicked on player's hex (STOMP action)
+            logging.info(f"REGULAR CLICK at ({clicked_hex.grid_x}, {clicked_hex.grid_y})")
             if self.player and clicked_hex == self.player.current_hex:
-                print("STOMP! Breaking player hex first, then adjacent hexes")
                 # Create floating text for STOMP action - no "CRACK" text for STOMP
                 self.add_floating_text("STOMP!", self.player.current_hex.center, (255, 0, 0))
                 
@@ -741,7 +728,6 @@ class Game:
                     sprint_targets = self.get_valid_sprint_targets(self.player.current_hex)
                     for target, path in sprint_targets:
                         if clicked_hex == target:
-                            print(f"SPRINT to ({target.grid_x}, {target.grid_y})")
                             self.player.sprint(path, current_time)
                             return
                 
@@ -768,7 +754,7 @@ class Game:
             current_time: Current game time in seconds
         """
         # Clear the screen
-        self.screen.fill(display.BACKGROUND_COLOR)
+        self.screen.fill(settings.display.BACKGROUND_COLOR)
         
         # Process any pending hex effects
         self.process_pending_hex_effects(current_time)
@@ -781,15 +767,15 @@ class Game:
         
         # Create a temporary surface for drawing with shake effect
         if self.is_screen_shaking:
-            temp_surface = pygame.Surface((display.WINDOW_WIDTH, display.WINDOW_HEIGHT))
-            temp_surface.fill(display.BACKGROUND_COLOR)
+            temp_surface = pygame.Surface((settings.display.WINDOW_WIDTH, settings.display.WINDOW_HEIGHT))
+            temp_surface.fill(settings.display.BACKGROUND_COLOR)
             draw_surface = temp_surface
         else:
             draw_surface = self.screen
         
         # Draw all hexes
-        for x in range(hex_grid.GRID_WIDTH):
-            for y in range(hex_grid.GRID_HEIGHT):
+        for x in range(settings.hex_grid.GRID_WIDTH):
+            for y in range(settings.hex_grid.GRID_HEIGHT):
                 hex = self.hexes[x][y]
                 
                 # Only add to non-broken list if this hex is not broken
@@ -804,14 +790,12 @@ class Game:
         
         # Draw player using the Entity draw method
         if self.player:
-            # Debug print to verify player exists
-            # print(f"Drawing player at ({self.player.current_hex.grid_x}, {self.player.current_hex.grid_y})")
             self.player.draw(draw_surface, current_time, 0, 0)
             
             # Update player animation
             self.player.update(current_time)
         else:
-            print("Warning: Player is None!")
+            logging.warning("Warning: Player is None!")
         
         # Update and draw floating text animations
         active_texts = []
@@ -826,7 +810,7 @@ class Game:
         
         # Debug info
         debug_text = f"Player: {self.player.current_hex.grid_x}, {self.player.current_hex.grid_y}"
-        debug_surface = display.font.render(debug_text, True, (255, 255, 255))
+        debug_surface = settings.display.font.render(debug_text, True, (255, 255, 255))
         draw_surface.blit(debug_surface, (10, 10))
         
         # Apply screen shake by blitting the temp surface with an offset
@@ -964,4 +948,4 @@ class Game:
         # Execute the jump using the new jump method
         self.player.jump(target_hex, current_time)
         
-        print(f"JUMP from ({launch_hex.grid_x}, {launch_hex.grid_y}) to ({target_hex.grid_x}, {target_hex.grid_y})") 
+        logging.info(f"JUMP from ({launch_hex.grid_x}, {launch_hex.grid_y}) to ({target_hex.grid_x}, {target_hex.grid_y})") 
