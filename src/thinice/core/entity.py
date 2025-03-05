@@ -6,6 +6,7 @@ from typing import Tuple, Optional, Any
 import time
 import logging
 
+from .animation_manager import AnimationManager
 from .hex import Hex
 from .hex_state import HexState
 from ..config.settings import display
@@ -18,7 +19,9 @@ if TYPE_CHECKING:
 class Entity(ABC):
     """Abstract base class for game entities like player and enemies."""
     
-    def __init__(self, hex: Hex, glyph: str = "?", color: Tuple[int, int, int] = (255, 255, 255)):
+    def __init__(self, hex: Hex,
+                 animation_manager: AnimationManager,
+                 glyph: str = "?", color: Tuple[int, int, int] = (255, 255, 255)):
         """Initialize the entity.
         
         Args:
@@ -40,6 +43,7 @@ class Entity(ABC):
         self.is_moving = False
         self.move_start_pos = (0, 0)
         self.move_end_pos = (0, 0)
+        self.animation_manager = animation_manager
         
         # Callback for when animation completes
         self.on_animation_complete = None
@@ -81,7 +85,8 @@ class Entity(ABC):
 
     def on_move_start(self) -> None:
         """Called when movement starts. Can be overridden by subclasses."""
-        pass
+        self.animation_manager.blocking_animations += 1
+        logging.debug(f'{self.animation_manager.blocking_animations=}')
     
     def get_adjacent_hexes(self) -> list:
         """Get list of adjacent hexes.
@@ -137,6 +142,8 @@ class Entity(ABC):
                 self.on_animation_complete = None
 
             self.animation_type = "none"
+            self.animation_manager.blocking_animations -= 1
+            logging.debug(f'{self.animation_manager.blocking_animations=}')
 
     def draw(self, screen: pygame.Surface, current_time: float) -> None:
         """Draw the player with special animations for jumping.
@@ -170,6 +177,8 @@ class Entity(ABC):
                 if self.on_animation_complete:
                     self.on_animation_complete()
                     self.on_animation_complete = None
+
+                self.animation_manager.blocking_animations -= 1
         else:
             x, y = self.current_hex.center
 
@@ -185,13 +194,13 @@ class Entity(ABC):
 class Player(Entity):
     """Player entity that can move between hex tiles."""
     
-    def __init__(self, start_hex):
+    def __init__(self, start_hex, animation_manager: AnimationManager):
         """Initialize the player entity.
         
         Args:
             start_hex: The starting hex tile
         """
-        super().__init__(start_hex, "@", (255, 100, 100))
+        super().__init__(start_hex, animation_manager, "@", (255, 100, 100))
 
 
     def jump(self, target_hex, current_time):
@@ -209,6 +218,7 @@ class Player(Entity):
         self.move_start_pos = self.current_hex.center
         self.move_end_pos = target_hex.center
         self.animation_type = "jump"
+        self.animation_manager.blocking_animations += 1
     
     def sprint(self, path, current_time):
         """Move directly to the end hex of the path with a single animation.
@@ -238,8 +248,12 @@ class Player(Entity):
         # Start the move
         self.is_moving = True
 
+        self.animation_manager.blocking_animations += 1
+
     def on_move_start(self):
         """Called when the player starts moving."""
+        super().on_move_start()
+
         # Create floating text for movement
         game_instance = self._get_game_instance()
         if game_instance:

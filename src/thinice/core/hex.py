@@ -1,4 +1,5 @@
 """Hex tile component for the ice breaking game."""
+import logging
 import random
 import math
 import pygame
@@ -6,6 +7,7 @@ from typing import List, Tuple, Optional, Dict, Set, Union
 import numpy
 from pygame.math import Vector2
 
+from .animation_manager import AnimationManager
 from .hex_state import HexState
 from .crack import Crack
 from ..config.settings import hex_grid, crack as crack_config, water, animation, display
@@ -213,7 +215,11 @@ class IceFragment(pygame.sprite.Sprite):
 class Hex:
     """Represents a hexagonal tile in the game grid."""
     
-    def __init__(self, x: float, y: float, grid_x: int, grid_y: int, color: Tuple[int, int, int] = None, state: HexState = HexState.SOLID):
+    def __init__(self, x: float, y: float,
+                 grid_x: int, grid_y: int,
+                 animation_manager: AnimationManager,
+                 color: Tuple[int, int, int] = None,
+                 state: HexState = HexState.SOLID):
         """Initialize a new hex tile.
         
         Args:
@@ -245,6 +251,7 @@ class Hex:
         self.transition_duration = 0.4  # Faster animation (was 1.0 second)
         self.transition_progress = 0.0  # 0.0 to 1.0
         self.original_fragment_positions = []  # To store initial positions for animation
+        self.animation_manager = animation_manager
         
     def _init_color(self) -> Tuple[int, int, int]:
         """Initialize the color of the hex tile with slight variations."""
@@ -397,6 +404,8 @@ class Hex:
         self.transition_start_time = pygame.time.get_ticks() / 1000.0  # Current time in seconds
         self.transition_duration = animation.CRACKING_DURATION
         self.transition_progress = 0.0
+        self.animation_manager.blocking_animations += 1
+        logging.debug(f'{self.animation_manager.blocking_animations=}')
         
         # Store neighbors for connecting cracks during animation
         self.cracking_neighbors = neighbors
@@ -523,9 +532,11 @@ class Hex:
         self.transition_start_time = pygame.time.get_ticks() / 1000.0
         
         # Increase transition duration for a slower, more visible animation
-        self.transition_duration = 1.5  # Increased from 0.6 seconds
+        self.transition_duration = 1.5
         self.transition_progress = 0.0
-        
+        self.animation_manager.blocking_animations += 1
+        logging.debug(f'{self.animation_manager.blocking_animations=}')
+
         # Clear cached surfaces
         self.broken_surface = None
         
@@ -1408,7 +1419,9 @@ class Hex:
             # Check if transition is complete
             if self.transition_progress >= 1.0:
                 self.state = HexState.CRACKED
-                # Secondary cracks are now added during the animation
+                self.animation_manager.blocking_animations -= 1
+                logging.debug(f'{self.animation_manager.blocking_animations=}')
+
         elif self.state == HexState.CRACKED:
             self._draw_cracked(screen)
         elif self.state == HexState.BREAKING:
@@ -1422,6 +1435,9 @@ class Hex:
             # Check if transition is complete
             if self.transition_progress >= 1.0:
                 self.state = HexState.BROKEN
+                self.animation_manager.blocking_animations -= 1
+                logging.debug(f'{self.animation_manager.blocking_animations=}')
+
         elif self.state == HexState.BROKEN:
             self._draw_broken(screen, current_time, non_broken_hexes) 
         elif self.state == HexState.LAND:

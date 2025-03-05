@@ -9,9 +9,10 @@ import sys
 import random
 import logging
 
+from .animation_manager import AnimationManager
 from .hex import Hex
 from .hex_state import HexState
-from .entity import Entity, Player
+from .entity import Player, Wolf
 from ..config import settings
 
 # Add a test logging statement to verify logging is working
@@ -139,10 +140,11 @@ class Game:
         self.world_height = 0
         
         # Initialize game state
+        self.animation_manager = AnimationManager()
         self.hexes: List[List[Hex]] = []
         self._init_hex_grid()  # This calculates world_width and world_height
         self.start_time = pygame.time.get_ticks() / 1000.0
-        
+
         # Initialize player on a random SOLID hex
         self.player = self._init_player()
         self.enemies = []
@@ -254,7 +256,7 @@ class Game:
                     g = min(255, max(0, base_g + random.randint(-color_variation, color_variation)))
                     b = min(255, max(0, base_b + random.randint(-color_variation, color_variation)))
                     color = (r, g, b)
-                    self.hexes[x][y] = Hex(center_x, center_y, x, y, color=color, state=HexState.LAND)
+                    self.hexes[x][y] = Hex(center_x, center_y, x, y, self.animation_manager, color=color, state=HexState.LAND)
                     land_hexes.append((x, y))
                 else:
                     # Create a regular ice hex with a pure white to blue-grey gradient
@@ -276,7 +278,7 @@ class Game:
                     ice_b = 255  # No variation in blue to ensure we stay in the blue spectrum
                     
                     ice_color = (ice_r, ice_g, ice_b)
-                    self.hexes[x][y] = Hex(center_x, center_y, x, y, color=ice_color)
+                    self.hexes[x][y] = Hex(center_x, center_y, x, y, self.animation_manager, color=ice_color)
         
         # Select 10 random hexes from the visible area to be LAND
         if len(visible_area) > 10:
@@ -293,7 +295,10 @@ class Game:
                 
                 # Convert existing hex to LAND
                 self.hexes[x][y] = Hex(self.hexes[x][y].center[0], self.hexes[x][y].center[1], 
-                                      x, y, color=color, state=HexState.LAND)
+                                      x, y,
+                                      animation_manager=self.animation_manager,
+                                      color=color,
+                                      state=HexState.LAND)
                 land_hexes.append((x, y))
 
         # Second pass: Make hexes adjacent to LAND hexes pure white
@@ -310,7 +315,8 @@ class Game:
                     pure_white = (255, 255, 255)
                     self.hexes[neighbor.grid_x][neighbor.grid_y] = Hex(
                         neighbor.center[0], neighbor.center[1], 
-                        neighbor.grid_x, neighbor.grid_y, 
+                        neighbor.grid_x, neighbor.grid_y,
+                        animation_manager=self.animation_manager,
                         color=pure_white
                     )
                     white_hexes_count += 1
@@ -331,7 +337,7 @@ class Game:
         # Choose a random SOLID hex
         if solid_hexes:
             start_hex = random.choice(solid_hexes)
-            return Player(start_hex)
+            return Player(start_hex, self.animation_manager)
         else:
             # Fallback to first hex if no SOLID hexes
             logging.warning("Warning: No SOLID hexes found for player start. Using first hex.")
@@ -693,8 +699,7 @@ class Game:
                         self.add_floating_text("BREAK!", clicked_hex.center, (255, 30, 30))
                 case "enemy":
                     # Create an enemy is there isn't one on the hex, remove it if there is one.
-
-                    pass
+                    self.enemies.append(Wolf(clicked_hex))
         else:
             # REGULAR CLICK
             # Check if clicked on player's hex (STOMP action)
@@ -796,6 +801,10 @@ class Game:
             self.player.update(current_time)
         else:
             logging.warning("Warning: Player is None!")
+
+        for enemy in self.enemies:
+            enemy.draw(draw_surface, current_time)
+            enemy.update(current_time)
         
         # Update and draw floating text animations
         active_texts = []
