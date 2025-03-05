@@ -790,7 +790,7 @@ class Game:
         
         # Draw player using the Entity draw method
         if self.player:
-            self.player.draw(draw_surface, current_time, 0, 0)
+            self.player.draw(draw_surface, current_time)
             
             # Update player animation
             self.player.update(current_time)
