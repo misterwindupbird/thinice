@@ -193,10 +193,6 @@ class Game:
         - Hexes adjacent to LAND are pure white
         - The rest are SOLID with blue-grey gradient
         """
-        # Set grid dimensions to fit the screen
-        settings.hex_grid.GRID_WIDTH = 21
-        settings.hex_grid.GRID_HEIGHT = 15
-        
         # Calculate hex dimensions
         hex_height = settings.hex_grid.RADIUS * 1.732  # sqrt(3)
         spacing_x = settings.hex_grid.RADIUS * 1.5
