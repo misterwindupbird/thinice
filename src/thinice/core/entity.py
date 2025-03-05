@@ -21,7 +21,8 @@ class Entity(ABC):
     
     def __init__(self, hex: Hex,
                  animation_manager: AnimationManager,
-                 glyph: str = "?", color: Tuple[int, int, int] = (255, 255, 255)):
+                 glyph: str = "?",
+                 color: Tuple[int, int, int] = (255, 255, 255)):
         """Initialize the entity.
         
         Args:
@@ -265,11 +266,15 @@ class Player(Entity):
 class Wolf(Entity):
     """Player entity that can move between hex tiles."""
 
-    def __init__(self, start_hex):
+    def __init__(self, start_hex, animation_manager: AnimationManager):
         """Initialize the player entity.
 
         Args:
             start_hex: The starting hex tile
         """
-        super().__init__(start_hex, "W", (255, 100, 100))
+        super().__init__(start_hex,
+                         animation_manager=animation_manager,
+                         glyph="W",
+                         color=(255, 100, 100))
+
         self.animation_type = "none"  # Track the type of animation: "none", "move", "jump", "sprint"

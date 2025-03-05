@@ -8,11 +8,13 @@ from watchdog.events import FileSystemEventHandler
 import sys
 import random
 import logging
+from enum import Enum, auto
 
 from .animation_manager import AnimationManager
 from .hex import Hex
 from .hex_state import HexState
 from .entity import Player, Wolf
+from .pathfinding import a_star
 from ..config import settings
 
 # Add a test logging statement to verify logging is working
@@ -104,12 +106,20 @@ class GameRestartHandler(FileSystemEventHandler):
             os.chdir(current_dir)  # Change to the project root directory
             os.execl(python, python, "-m", "thinice")
 
+class GameState(Enum):
+    PLAYER = auto() # waiting for player action
+    ENEMY = auto()  # perform enemy actio
+
+    def __str__(self) -> str:
+        return self.name.lower().capitalize()
+
 class Game:
     """Main game class managing the game loop and hex grid."""
     
     # Singleton instance for access from Entity classes
     instance = None
-    
+
+
     def __init__(self, enable_watcher: bool = False):
         """Initialize the game.
         
@@ -140,7 +150,7 @@ class Game:
         self.world_height = 0
         
         # Initialize game state
-        self.animation_manager = AnimationManager()
+        self.animation_manager = AnimationManager(on_finished=self.all_animations_completed_callback)
         self.hexes: List[List[Hex]] = []
         self._init_hex_grid()  # This calculates world_width and world_height
         self.start_time = pygame.time.get_ticks() / 1000.0
@@ -167,6 +177,8 @@ class Game:
         
         # Debug visualization
         self.show_jump_targets = False  # Set to False to hide valid jump targets
+
+        self.game_state = GameState.PLAYER
         
     def _init_display(self) -> None:
         """Initialize the game display."""
@@ -489,7 +501,7 @@ class Game:
                 self.observer.join()
             pygame.quit()
     
-    def add_floating_text(self, text: str, position: Tuple[float, float], color: Tuple[int, int, int] = (255, 255, 255)) -> None:
+    def add_floating_text(self, text: str, position: Tuple[float, float], color: Tuple[int, int, int] = (255, 50, 50)) -> None:
         """Add a floating text animation at the specified position.
         
         Args:
@@ -674,6 +686,10 @@ class Game:
             pos: Mouse position (x, y) in screen coordinates
             current_time: Current game time in seconds
         """
+        if self.game_state != GameState.PLAYER:
+            logging.debug(f'Invalid! Game state is {self.game_state}.')
+            return
+
         # Find the clicked hex
         clicked_hex = self.pixel_to_hex(pos[0], pos[1])
         if not clicked_hex:
@@ -699,7 +715,7 @@ class Game:
                         self.add_floating_text("BREAK!", clicked_hex.center, (255, 30, 30))
                 case "enemy":
                     # Create an enemy is there isn't one on the hex, remove it if there is one.
-                    self.enemies.append(Wolf(clicked_hex))
+                    self.enemies.append(Wolf(start_hex=clicked_hex, animation_manager=self.animation_manager))
         else:
             # REGULAR CLICK
             # Check if clicked on player's hex (STOMP action)
@@ -953,4 +969,34 @@ class Game:
         # Execute the jump using the new jump method
         self.player.jump(target_hex, current_time)
         
-        logging.info(f"JUMP from ({launch_hex.grid_x}, {launch_hex.grid_y}) to ({target_hex.grid_x}, {target_hex.grid_y})") 
+        logging.info(f"JUMP from ({launch_hex.grid_x}, {launch_hex.grid_y}) to ({target_hex.grid_x}, {target_hex.grid_y})")
+
+    def all_animations_completed_callback(self) -> None:
+        """ All blocking animations have completed. """
+        logging.info(f'Received animation completion callback. {self.game_state=}')
+        match self.game_state:
+            case GameState.PLAYER:
+                # all player-related animations have completed
+                self.game_state = GameState.ENEMY
+                self._enemy_ai()
+            case GameState.ENEMY:
+                # all enemy-related animations have completed
+                self.game_state = GameState.PLAYER
+
+
+    def _enemy_ai(self) -> None:
+        current_time = pygame.time.get_ticks() / 1000.0 - self.start_time
+        for enemy in self.enemies:
+            if self.player.current_hex in self.get_hex_neighbors(enemy.current_hex):
+                self.add_floating_text("ATTACK", enemy.current_hex.center)
+                continue
+
+            from .pathfinding import a_star # avoid circular dependencies
+            path = a_star(enemy.current_hex, self.player.current_hex)
+            logging.info(f'{path=}')
+            enemy.move(target_hex=path[1], current_time=current_time)
+
+        if self.animation_manager.blocking_animations == 0:
+            self.game_state = GameState.PLAYER
+
+
