@@ -622,6 +622,10 @@ class Game:
             logging.debug(f'Invalid! Game state is {self.game_state}.')
             return
 
+        if not self.player:
+            logging.warn("No PLAYER entity.")
+            return
+
         # Find the clicked hex
         clicked_hex = self.pixel_to_hex(pos[0], pos[1])
         if not clicked_hex:
@@ -648,58 +652,72 @@ class Game:
                 case "enemy":
                     # Create an enemy is there isn't one on the hex, remove it if there is one.
                     self.enemies.append(Wolf(start_hex=clicked_hex, animation_manager=self.animation_manager))
-        else:
-            # REGULAR CLICK
-            # Check if clicked on player's hex (STOMP action)
-            logging.info(f"REGULAR CLICK at ({clicked_hex.grid_x}, {clicked_hex.grid_y})")
-            if self.player and clicked_hex == self.player.current_hex:
-                # Create floating text for STOMP action - no "CRACK" text for STOMP
-                self.add_floating_text("STOMP!", self.player.current_hex.center, (255, 0, 0))
+            return
+
+        # REGULAR CLICK
+        logging.info(f"REGULAR CLICK at ({clicked_hex.grid_x}, {clicked_hex.grid_y})")
+        # Check if player is already moving
+        if self.player.is_moving:
+            return
+
+        # Check if clicked on player's hex (STOMP action)
+        if clicked_hex == self.player.current_hex:
+            # Create floating text for STOMP action - no "CRACK" text for STOMP
+            self.add_floating_text("STOMP!", self.player.current_hex.center, (255, 0, 0))
+
+            # Apply screen shake effect
+            self.start_screen_shake(current_time)
+
+            # Get all adjacent hexes for later processing
+            neighbors = self.get_hex_neighbors(clicked_hex)
+
+            # First, only crack the player's hex if it's SOLID
+            if clicked_hex.state == HexState.SOLID:
+                clicked_hex.crack([])  # Empty list since we don't need to check neighbors here
+                # Schedule the surrounding hexes to crack/break after a delay
+                self.schedule_surrounding_hex_effects(clicked_hex, neighbors, current_time)
+            elif clicked_hex.state == HexState.CRACKED:
+                clicked_hex.break_ice()
+                # Schedule the surrounding hexes to crack/break after a delay
+                self.schedule_surrounding_hex_effects(clicked_hex, neighbors, current_time)
+            return
+
+
+        # Check for SPRINT action (3 hexes away in a straight line)
+        sprint_targets = self.get_valid_sprint_targets(self.player.current_hex)
+        for target, path in sprint_targets:
+            if clicked_hex == target:
+                self.player.sprint(path, current_time)
+                return
                 
-                # Apply screen shake effect
-                self.start_screen_shake(current_time)
-                
-                # Get all adjacent hexes for later processing
-                neighbors = self.get_hex_neighbors(clicked_hex)
-                
-                # First, only crack the player's hex if it's SOLID
-                if clicked_hex.state == HexState.SOLID:
-                    clicked_hex.crack([])  # Empty list since we don't need to check neighbors here
-                    # Schedule the surrounding hexes to crack/break after a delay
-                    self.schedule_surrounding_hex_effects(clicked_hex, neighbors, current_time)
-                elif clicked_hex.state == HexState.CRACKED:
-                    clicked_hex.break_ice()
-                    # Schedule the surrounding hexes to crack/break after a delay
-                    self.schedule_surrounding_hex_effects(clicked_hex, neighbors, current_time)
-            else:
-                # Check if player is already moving
-                if self.player and self.player.is_moving:
-                    return
-                
-                # Check for SPRINT action (3 hexes away in a straight line)
-                if self.player:
-                    sprint_targets = self.get_valid_sprint_targets(self.player.current_hex)
-                    for target, path in sprint_targets:
-                        if clicked_hex == target:
-                            self.player.sprint(path, current_time)
-                            return
-                
-                # Check for JUMP action (2 hexes away)
-                if self.player:
-                    valid_jump_targets = self.get_valid_jump_targets(self.player.current_hex)
-                    if clicked_hex in valid_jump_targets:
-                        # Perform JUMP maneuver
-                        self.perform_jump(clicked_hex, current_time)
-                        return
-                
-                # Regular move to adjacent hex
-                if self.player:
-                    # Check if the clicked hex is adjacent to the player
-                    adjacent_hexes = self.get_hex_neighbors(self.player.current_hex)
-                    if clicked_hex in adjacent_hexes:
-                        # Try to move player to the clicked hex
-                        self.player.move(clicked_hex, current_time)
-    
+        # Check for JUMP action (2 hexes away)
+        valid_jump_targets = self.get_valid_jump_targets(self.player.current_hex)
+        if clicked_hex in valid_jump_targets:
+            # Perform JUMP maneuver
+            self.perform_jump(clicked_hex, current_time)
+            return
+
+        # Check for PUSH action (hex is adjacent and contains enemy)
+        for enemy in self.enemies:
+            if clicked_hex == enemy.current_hex:
+                self.push_enemy(enemy, self.player.current_hex.get_shared_edge_index(clicked_hex), current_time)
+                return
+
+        # Regular move to adjacent hex?
+        # Check if the clicked hex is adjacent to the player
+        adjacent_hexes = self.get_hex_neighbors(self.player.current_hex)
+        if clicked_hex in adjacent_hexes:
+            # Try to move player to the clicked hex
+            self.player.move(clicked_hex, current_time)
+
+
+    def push_enemy(self, enemy: Wolf, direction: int, current_time: float) -> None:
+
+        target_hex = enemy.current_hex.get_neighbor(direction, self.hexes)
+        logging.info(f"push {enemy} in direction {direction} toward {target_hex}")
+        enemy.pushed(target_hex, current_time)
+
+
     def _draw(self, current_time: float) -> None:
         """Draw the game state.
         

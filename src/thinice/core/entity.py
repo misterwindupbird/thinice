@@ -75,8 +75,11 @@ class Entity(ABC):
         elapsed = current_time - self.animation_start_time
         progress = min(1.0, elapsed / self.animation_duration)
 
+        if self.animation_type != "none":
+            logging.debug(f"{self} Updated {self.animation_type}: {progress}")
         if self.animation_type == "drown":
             self._update_drown_animation(progress)
+            return
         if not self.is_moving:
             return
 
@@ -314,3 +317,17 @@ class Wolf(Entity):
                          token='wolf_token.png')
 
         self.animation_type = "none"  # Track the type of animation: "none", "move", "jump", "sprint"
+
+    def pushed(self, target_hex: Hex, current_time: float) -> None:
+
+        self.target_hex = target_hex
+        self.is_moving = True
+        self.animation_start_time = current_time
+        self.animation_duration = 0.2  # Regular move is faster
+        self.animation_type = "pushed"
+        self.move_start_pos = self.current_hex.center
+        self.move_end_pos = target_hex.center
+
+        logging.debug(f'{self}: pushed to {self.target_hex}')
+        self.animation_manager.blocking_animations += 1
+
