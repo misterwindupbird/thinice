@@ -60,6 +60,13 @@ class IceFragment(pygame.sprite.Sprite):
         self.bob_speed = random.uniform(0.5, 1.5)
         self.bob_amount = random.uniform(0.3, 0.8)
 
+        # Bump animation properties
+        self.bump_force_x = 0
+        self.bump_force_y = 0
+        self.bump_decay = 0.9  # How quickly the bump effect fades
+        self.bump_active = False
+        self.bump_start_time = 0
+
         # Current state
         self.angle = 0
         self.offset_x = 0
@@ -79,8 +86,22 @@ class IceFragment(pygame.sprite.Sprite):
         # Calculate time since creation
         time_since_creation = current_time - self.creation_time
 
+        # Process bump effect if active
+        if self.bump_active:
+            # Apply decay to bump forces
+            bump_time = current_time - self.bump_start_time
+            if bump_time > 0.5 or (abs(self.bump_force_x) < 0.1 and abs(self.bump_force_y) < 0.1):
+                # End bump effect if it's been active for half a second or forces are negligible
+                self.bump_active = False
+                self.bump_force_x = 0
+                self.bump_force_y = 0
+            else:
+                # Apply decay
+                self.bump_force_x *= self.bump_decay
+                self.bump_force_y *= self.bump_decay
+
         # Skip movement if bob_amount or rotation is zero (during transition)
-        if self.bob_amount == 0 and self.rotation == 0:
+        if self.bob_amount == 0 and self.rotation == 0 and not self.bump_active:
             # Just update the sprite's position based on current offset
             self.rect.x = int(self.center[0] - self.rect.width / 2 + self.offset_x)
             self.rect.y = int(self.center[1] - self.rect.height / 2 + self.offset_y)
@@ -88,8 +109,8 @@ class IceFragment(pygame.sprite.Sprite):
 
         # Calculate potential new position
         max_drift = 15  # Maximum drift distance
-        new_offset_x = min(max_drift, max(-max_drift, self.dx * time_since_creation))
-        new_offset_y = min(max_drift, max(-max_drift, self.dy * time_since_creation))
+        new_offset_x = min(max_drift, max(-max_drift, self.dx * time_since_creation + self.bump_force_x))
+        new_offset_y = min(max_drift, max(-max_drift, self.dy * time_since_creation + self.bump_force_y))
 
         # Add bobbing motion
         bob_y = math.sin(current_time * self.bob_speed + self.bob_phase) * self.bob_amount
@@ -164,6 +185,39 @@ class IceFragment(pygame.sprite.Sprite):
         # If we need to update the image due to rotation
         if abs(self.angle) > 0.01:
             self._update_rotated_image()
+
+    def apply_bump(self, force: float = 5.0) -> None:
+        """Apply a bump force to this fragment from the hex center.
+        
+        Args:
+            force: Base force magnitude of the bump
+        """
+        # Calculate direction from hex center to fragment
+        dx = self.center[0] + self.offset_x - self.hex_center[0]
+        dy = self.center[1] + self.offset_y - self.hex_center[1]
+        
+        # Calculate distance
+        distance = math.sqrt(dx**2 + dy**2)
+        
+        # Normalize direction
+        if distance > 0:
+            dx /= distance
+            dy /= distance
+            
+            # Apply force in the direction away from hex center
+            self.bump_force_x = dx * force
+            self.bump_force_y = dy * force
+            
+            # Add a bit of random variation
+            self.bump_force_x += random.uniform(-0.5, 0.5)
+            self.bump_force_y += random.uniform(-0.5, 0.5)
+            
+            # Activate bump effect
+            self.bump_active = True
+            self.bump_start_time = pygame.time.get_ticks() / 1000.0
+            
+            # Also add a small rotation impulse
+            self.rotation += random.uniform(-0.02, 0.02) * force
 
     def _update_rotated_image(self) -> None:
         """Update the sprite's image with the current rotation."""

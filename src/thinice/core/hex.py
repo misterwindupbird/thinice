@@ -1235,8 +1235,8 @@ class Hex:
             # Check if transition is complete
             if self.transition_progress >= 1.0:
                 self.state = HexState.CRACKED
+                logging.debug(f'{self}: finished CRACKING')
                 self.animation_manager.blocking_animations -= 1
-                logging.debug(f'{self.animation_manager.blocking_animations=}')
 
         elif self.state == HexState.CRACKED:
             self._draw_cracked(screen)
@@ -1251,8 +1251,8 @@ class Hex:
             # Check if transition is complete
             if self.transition_progress >= 1.0:
                 self.state = HexState.BROKEN
+                logging.debug(f'{self}: finished BREAKING')
                 self.animation_manager.blocking_animations -= 1
-                logging.debug(f'{self.animation_manager.blocking_animations=}')
 
         elif self.state == HexState.BROKEN:
             self._draw_broken(screen, current_time, non_broken_hexes) 

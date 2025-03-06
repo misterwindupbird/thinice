@@ -109,16 +109,17 @@ class Entity(ABC):
 
     def on_move_start(self) -> None:
         """Called when movement starts. Can be overridden by subclasses."""
+        logging.debug(f'{self}: start moving')
         self.animation_manager.blocking_animations += 1
-        logging.debug(f'{self.animation_manager.blocking_animations=}')
 
-    def drown(self, current_time: float, completion_callback: Callable[[], None]) -> bool:
+    def drown(self, current_time: float) -> bool:
+
+        logging.debug(f'{self}: start drowning')
 
         self.animation_manager.blocking_animations += 1
         self.animation_start_time = current_time
         self.animation_duration = 0.3
         self.animation_type = "drown"
-        self.on_animation_complete = completion_callback
 
         return True
 
@@ -126,6 +127,7 @@ class Entity(ABC):
 
         if progress >= 1.0:
 
+            logging.debug(f'{self}: finished drowning')
             self.animation_manager.blocking_animations -= 1
 
             # Call the on_animation_complete callback if it exists
@@ -133,7 +135,7 @@ class Entity(ABC):
                 self.on_animation_complete()
                 self.on_animation_complete = None
 
-            self.animation_type = "none"
+            self.animation_type = "dead"
 
         else:
             self.radius = int(20 * (1-progress))
@@ -185,6 +187,7 @@ class Entity(ABC):
             self.current_hex = self.target_hex
             self.position = self.current_hex.center
 
+            logging.debug(f'{self}: finished regular animation')
             self.animation_manager.blocking_animations -= 1
 
             # Call the on_animation_complete callback if it exists
@@ -214,20 +217,20 @@ class Entity(ABC):
             x = self.move_start_pos[0] * (1 - eased_progress) + self.move_end_pos[0] * eased_progress
             y = self.move_start_pos[1] * (1 - eased_progress) + self.move_end_pos[1] * eased_progress
 
-            # Remove any jump arc
-            # Check if animation is complete
-            if progress >= 1.0:
-                self.is_moving = False
-                self.current_hex = self.target_hex
-                self.target_hex = None
-                x, y = self.current_hex.center
-
-                # Call the animation complete callback if it exists
-                if self.on_animation_complete:
-                    self.on_animation_complete()
-                    self.on_animation_complete = None
-
-                self.animation_manager.blocking_animations -= 1
+            # # Remove any jump arc
+            # # Check if animation is complete
+            # if progress >= 1.0:
+            #     self.is_moving = False
+            #     self.current_hex = self.target_hex
+            #     self.target_hex = None
+            #     x, y = self.current_hex.center
+            #
+            #     # Call the animation complete callback if it exists
+            #     if self.on_animation_complete:
+            #         self.on_animation_complete()
+            #         self.on_animation_complete = None
+            #
+            #     self.animation_manager.blocking_animations -= 1
         else:
             x, y = self.current_hex.center
 
@@ -267,6 +270,8 @@ class Player(Entity):
         self.move_start_pos = self.current_hex.center
         self.move_end_pos = target_hex.center
         self.animation_type = "jump"
+
+        logging.debug(f'{self}: started jump')
         self.animation_manager.blocking_animations += 1
     
     def sprint(self, path, current_time):
@@ -297,6 +302,7 @@ class Player(Entity):
         # Start the move
         self.is_moving = True
 
+        logging.debug(f'{self}: started sprint')
         self.animation_manager.blocking_animations += 1
 
     def on_move_start(self):
@@ -307,7 +313,6 @@ class Player(Entity):
         game_instance = self._get_game_instance()
         if game_instance:
             game_instance.add_floating_text("MOVE", self.current_hex.center, (255, 100, 100))
-
 
 
 

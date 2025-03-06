@@ -907,11 +907,15 @@ class Game:
         """ All blocking animations have completed. """
         logging.info(f'Received animation completion callback. {self.game_state=}')
 
+        # reap dead enemies
+        self.enemies = [enemy for enemy in self.enemies if enemy.animation_type != 'dead']
+
         # if any enemies are now in a BROKEN hex, we need to drown them
         for enemy in self.enemies:
-            if enemy.current_hex.state == HexState.BROKEN:
-                enemy.drown(current_time=pygame.time.get_ticks() / 1000.0 - self.start_time,
-                            completion_callback=lambda: self.enemies.remove(enemy))
+            if enemy.current_hex.state == HexState.BROKEN and enemy.animation_type != "drown":
+                enemy.drown(current_time=pygame.time.get_ticks() / 1000.0 - self.start_time)
+                for fragment in enemy.current_hex.fragment_sprites:  # Assuming you store fragments in the hex
+                    fragment.apply_bump()
 
         # if we started any new animations, we won't switch state yet
         if self.animation_manager.blocking_animations > 0:
@@ -930,6 +934,7 @@ class Game:
     def _enemy_ai(self) -> None:
         current_time = pygame.time.get_ticks() / 1000.0 - self.start_time
         for enemy in self.enemies:
+            logging.debug(f'AI for {enemy}')
             if self.player.current_hex in self.get_hex_neighbors(enemy.current_hex):
                 self.add_floating_text("ATTACK", enemy.current_hex.center)
                 continue
