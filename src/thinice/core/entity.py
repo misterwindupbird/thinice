@@ -5,6 +5,7 @@ import pygame
 from typing import Tuple, Optional, Any, Callable
 from pathlib import Path
 import logging
+import random
 
 from .animation_manager import AnimationManager
 from .hex import Hex
@@ -18,7 +19,7 @@ if TYPE_CHECKING:
 
 IMAGE_DIR = Path(__file__).parents[1] / 'images'
 
-class Entity(ABC):
+class Entity(pygame.sprite.Sprite, ABC):
     """Abstract base class for game entities like player and enemies."""
 
     _id_counter = 0
@@ -30,9 +31,12 @@ class Entity(ABC):
         
         Args:
             hex: The hex tile the entity is on
-            glyph: Character to represent the entity
-            color: RGB color tuple for the entity
+            animation_manager: The animation manager
+            token: Image filename for the entity's token
         """
+        # Initialize the Sprite base class
+        pygame.sprite.Sprite.__init__(self)
+        
         self.id = Entity._id_counter
         Entity._id_counter += 1
 
@@ -49,7 +53,11 @@ class Entity(ABC):
         self.move_start_pos = (0, 0)
         self.move_end_pos = (0, 0)
         self.animation_manager = animation_manager
-        self.image = pygame.transform.smoothscale(pygame.image.load(IMAGE_DIR / token), (hex_grid.RADIUS, hex_grid.RADIUS))
+        
+        # Load the image and set up the rect for Sprite
+        self.original_image = pygame.image.load(IMAGE_DIR / token)
+        self.image = pygame.transform.smoothscale(self.original_image, (hex_grid.RADIUS, hex_grid.RADIUS))
+        self.rect = self.image.get_rect(center=self.position)
 
         # Callback for when animation completes
         self.on_animation_complete = None
@@ -71,19 +79,33 @@ class Entity(ABC):
         Args:
             current_time: Current game time in seconds
         """
+        # If the entity is dead, don't update it
+        if self.animation_type == "dead":
+            # Just log occasionally to avoid spamming the console
+            if random.random() < 0.01:  # Only log about 1% of the time
+                logging.debug(f"{self} is dead, not updating")
+            return
+            
         # Calculate progress (0.0 to 1.0)
         elapsed = current_time - self.animation_start_time
         progress = min(1.0, elapsed / self.animation_duration)
 
         if self.animation_type != "none":
             logging.debug(f"{self} Updated {self.animation_type}: {progress}")
+            
+        # Handle different animation types
         if self.animation_type == "drown":
             self._update_drown_animation(progress)
             return
-        if not self.is_moving:
+        elif not self.is_moving and self.animation_type not in ["move", "jump", "sprint", "pushed"]:
+            # No animation in progress
             return
 
+        # Handle regular movement animations
         self._update_regular_animation(progress)
+        
+        # Update the rect position for Sprite
+        self.rect.center = self.position
     
     def move(self, target_hex: Hex, current_time: float) -> bool:
         """Start moving to an adjacent hex with animation.
@@ -116,33 +138,58 @@ class Entity(ABC):
         self.animation_manager.blocking_animations += 1
 
     def drown(self, current_time: float) -> bool:
+        """Start drowning animation.
+        
+        Args:
+            current_time: Current game time in seconds
+            
+        Returns:
+            True if drowning started
+        """
+        logging.debug(f'{self}: start drowning at time {current_time}')
 
-        logging.debug(f'{self}: start drowning')
+        # Make sure we're not already drowning
+        if self.animation_type == "drown":
+            logging.debug(f'{self}: already drowning, ignoring duplicate call')
+            return False
 
         self.animation_manager.blocking_animations += 1
         self.animation_start_time = current_time
-        self.animation_duration = 0.3
+        self.animation_duration = 0.5  # Slightly longer for drowning animation
         self.animation_type = "drown"
-
+        
+        # Reset any movement flags
+        self.is_moving = False
+        
         return True
 
     def _update_drown_animation(self, progress: float) -> None:
+        """Update drowning animation.
+        
+        Args:
+            progress: Animation progress from 0.0 to 1.0
+        """
 
         if progress >= 1.0:
-
-            logging.debug(f'{self}: finished drowning')
+            logging.info(f'{self}: finished drowning, marking as dead')
             self.animation_manager.blocking_animations -= 1
 
             # Call the on_animation_complete callback if it exists
             if hasattr(self, 'on_animation_complete') and self.on_animation_complete:
-                self.on_animation_complete()
+                callback = self.on_animation_complete
                 self.on_animation_complete = None
+                callback()  # Call the callback after clearing it
 
+            # Mark as dead - this will be picked up by the all_animations_completed_callback
             self.animation_type = "dead"
-
+            logging.info(f'{self}: animation_type set to "dead"')
         else:
+            # Scale the image down as the entity drowns
             self.radius = int(20 * (1-progress))
-
+            new_size = int(hex_grid.RADIUS * (1-progress))
+            if new_size > 0:  # Prevent scaling to zero which would cause errors
+                self.image = pygame.transform.smoothscale(self.original_image, (new_size, new_size))
+                self.rect = self.image.get_rect(center=self.position)
 
     def get_adjacent_hexes(self) -> list:
         """Get list of adjacent hexes.
@@ -174,61 +221,51 @@ class Entity(ABC):
         """Update regular move or jump animation.
 
         Args:
-            current_time: Current game time in seconds
+            progress: Animation progress from 0.0 to 1.0
         """
-
         # Interpolate position
         self.position = (
             self.move_start_pos[0] + (self.move_end_pos[0] - self.move_start_pos[0]) * progress,
             self.move_start_pos[1] + (self.move_end_pos[1] - self.move_start_pos[1]) * progress
         )
+        
+        # Update the rect position for Sprite
+        self.rect.center = self.position
 
         # Check if animation is complete
         if progress >= 1.0:
-
             self.is_moving = False
             self.current_hex = self.target_hex
             self.position = self.current_hex.center
+            self.rect.center = self.position  # Update rect one final time
 
             logging.debug(f'{self}: finished regular animation')
             self.animation_manager.blocking_animations -= 1
 
             # Call the on_animation_complete callback if it exists
             if hasattr(self, 'on_animation_complete') and self.on_animation_complete:
-                self.on_animation_complete()
+                callback = self.on_animation_complete
                 self.on_animation_complete = None
+                callback()  # Call the callback after clearing it to avoid recursion issues
 
-            self.animation_type = "none"
+            # Reset animation type only if it's not being changed by the callback
+            # This allows drowning to start properly after a push
+            if self.animation_type in ["move", "jump", "sprint", "pushed"]:
+                self.animation_type = "none"
 
     def draw(self, screen: pygame.Surface, current_time: float) -> None:
-        """Draw the player with special animations for jumping.
+        """Draw the entity.
+        
+        This method is kept for backward compatibility.
+        In a full sprite-based system, you would use sprite group's draw method instead.
 
         Args:
             screen: Pygame surface to draw on
             current_time: Current game time in seconds
         """
-        # Calculate position based on animation
-        if self.is_moving:
-            progress = min(1.0, (current_time - self.animation_start_time) / self.animation_duration)
-
-            # Custom ease-in function: progress^3 for slow start and abrupt stop
-            eased_progress = progress ** 3
-
-            # Interpolate between start and end positions
-            x = self.move_start_pos[0] * (1 - eased_progress) + self.move_end_pos[0] * eased_progress
-            y = self.move_start_pos[1] * (1 - eased_progress) + self.move_end_pos[1] * eased_progress
-        else:
-            x, y = self.current_hex.center
-
-        # # Load and resize the wolf token to match the previous circle size
-        # token_size = self.radius * 2  # Match the diameter of the previous circle
-        # scaled_token = pygame.transform.smoothscale(self.image, (token_size, token_size))
-        #
-        # Get rectangle for proper centering
-        token_rect = self.image.get_rect(center=(x, y))
-
-        # Draw the wolf token at the calculated position
-        screen.blit(self.image, token_rect.topleft)
+        # The sprite's image and rect are already updated in the update method
+        # Just blit the image at the rect position
+        screen.blit(self.image, self.rect.topleft)
 
 class Player(Entity):
     """Player entity that can move between hex tiles."""
@@ -238,9 +275,9 @@ class Player(Entity):
         
         Args:
             start_hex: The starting hex tile
+            animation_manager: The animation manager
         """
-        super().__init__(start_hex, animation_manager,  'player_token.png')
-
+        super().__init__(start_hex, animation_manager, 'player_token.png')
 
     def jump(self, target_hex, current_time):
         """Perform a jump to a target hex that is 2 steps away.
@@ -301,16 +338,15 @@ class Player(Entity):
         if game_instance:
             game_instance.add_floating_text("MOVE", self.current_hex.center, (255, 100, 100))
 
-
-
 class Wolf(Entity):
-    """Player entity that can move between hex tiles."""
+    """Enemy wolf entity that can be pushed by the player."""
 
     def __init__(self, start_hex, animation_manager: AnimationManager):
-        """Initialize the player entity.
+        """Initialize the wolf entity.
 
         Args:
             start_hex: The starting hex tile
+            animation_manager: The animation manager
         """
         super().__init__(start_hex,
                          animation_manager=animation_manager,
@@ -319,7 +355,12 @@ class Wolf(Entity):
         self.animation_type = "none"  # Track the type of animation: "none", "move", "jump", "sprint"
 
     def pushed(self, target_hex: Hex, current_time: float) -> None:
-
+        """Start pushed animation when the wolf is pushed by the player.
+        
+        Args:
+            target_hex: The hex to push to
+            current_time: Current game time in seconds
+        """
         self.target_hex = target_hex
         self.is_moving = True
         self.animation_start_time = current_time

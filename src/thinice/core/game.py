@@ -87,6 +87,11 @@ class Game:
         self._init_hex_grid()  # This calculates world_width and world_height
         self.start_time = pygame.time.get_ticks() / 1000.0
 
+        # Initialize sprite groups
+        self.all_sprites = pygame.sprite.Group()
+        self.player_sprite = pygame.sprite.GroupSingle()
+        self.enemy_sprites = pygame.sprite.Group()
+        
         # Initialize player on a random SOLID hex
         self.player = self._init_player()
         self.enemies = []
@@ -112,6 +117,67 @@ class Game:
 
         self.game_state = GameState.PLAYER
         
+        # Debug mode
+        self.debug_mode = False
+        
+        # Initialize font for debug text
+        pygame.font.init()
+        self.font = pygame.font.SysFont('Arial', 14)
+        
+        # Initialize clock for frame rate control
+        self.clock = pygame.time.Clock()
+        
+        # Initialize game over flag
+        self.game_over = False
+        
+        # Initialize win flag
+        self.win = False
+        
+        # Initialize turn counter
+        self.turn_counter = 0
+        
+        # Initialize score
+        self.score = 0
+        
+        # Initialize high score
+        self.high_score = 0
+        
+        # Initialize game over text
+        self.game_over_text = None
+        
+        # Initialize win text
+        self.win_text = None
+        
+        # Initialize restart text
+        self.restart_text = None
+        
+        # Initialize quit text
+        self.quit_text = None
+        
+        # Initialize game over surface
+        self.game_over_surface = None
+        
+        # Initialize win surface
+        self.win_surface = None
+        
+        # Initialize restart surface
+        self.restart_surface = None
+        
+        # Initialize quit surface
+        self.quit_surface = None
+        
+        # Initialize game over rect
+        self.game_over_rect = None
+        
+        # Initialize win rect
+        self.win_rect = None
+        
+        # Initialize restart rect
+        self.restart_rect = None
+        
+        # Initialize quit rect
+        self.quit_rect = None
+
     def _init_display(self) -> None:
         """Initialize the game display."""
         # Use tkinter to get screen info
@@ -266,26 +332,31 @@ class Game:
                     white_hexes_count += 1
         
     def _init_player(self) -> Player:
-        """Initialize the player on a random SOLID hex.
+        """Initialize the player entity on a random solid hex.
         
         Returns:
-            The initialized Player entity
+            The player entity
         """
-        # Find all SOLID hexes
+        # Find all solid hexes
         solid_hexes = []
-        for x in range(settings.hex_grid.GRID_WIDTH):
-            for y in range(settings.hex_grid.GRID_HEIGHT):
-                if self.hexes[x][y].state == HexState.SOLID:
-                    solid_hexes.append(self.hexes[x][y])
+        for row in self.hexes:
+            for hex in row:
+                if hex.state == HexState.SOLID:
+                    solid_hexes.append(hex)
         
-        # Choose a random SOLID hex
+        # Choose a random solid hex
         if solid_hexes:
             start_hex = random.choice(solid_hexes)
-            return Player(start_hex, self.animation_manager)
+            player = Player(start_hex, self.animation_manager)
+            
+            # Add player to sprite groups
+            self.player_sprite.add(player)
+            self.all_sprites.add(player)
+            
+            return player
         else:
-            # Fallback to first hex if no SOLID hexes
-            logging.warning("Warning: No SOLID hexes found for player start. Using first hex.")
-            return Player(self.hexes[0][0])
+            logging.error("No solid hexes found for player start position!")
+            return None
     
     def get_hex_neighbors(self, hex: Hex) -> List[Hex]:
         """Get list of neighboring hex tiles.
@@ -612,12 +683,27 @@ class Game:
         return path
     
     def _handle_click(self, pos: Tuple[int, int], current_time: float) -> None:
-        """Handle a mouse click at the given position.
+        """Handle mouse click event.
         
         Args:
-            pos: Mouse position (x, y) in screen coordinates
+            pos: Mouse position (x, y)
             current_time: Current game time in seconds
         """
+        # Only handle clicks if no animations are running
+        if self.animation_manager.blocking_animations > 0:
+            return
+            
+        # Convert pixel coordinates to hex coordinates
+        clicked_hex = self.pixel_to_hex(pos[0], pos[1])
+        if not clicked_hex:
+            return
+            
+        # Debug: Add wolf on right click
+        if pygame.mouse.get_pressed()[2]:  # Right mouse button
+            if clicked_hex.state == HexState.SOLID and not self._hex_has_entity(clicked_hex):
+                self.add_enemy(clicked_hex)
+                return
+
         if self.game_state != GameState.PLAYER:
             logging.debug(f'Invalid! Game state is {self.game_state}.')
             return
@@ -650,8 +736,9 @@ class Game:
                         # Create floating text for BREAK action
                         self.add_floating_text("BREAK!", clicked_hex.center, (255, 30, 30))
                 case "enemy":
-                    # Create an enemy is there isn't one on the hex, remove it if there is one.
-                    self.enemies.append(Wolf(start_hex=clicked_hex, animation_manager=self.animation_manager))
+                    # Create an enemy if there isn't one on the hex
+                    if not self._hex_has_entity(clicked_hex):
+                        self.add_enemy(clicked_hex)
             return
 
         # REGULAR CLICK
@@ -712,9 +799,27 @@ class Game:
 
 
     def push_enemy(self, enemy: Wolf, direction: int, current_time: float) -> None:
-
+        """Push an enemy in a direction.
+        
+        Args:
+            enemy: The enemy to push
+            direction: The direction to push in
+            current_time: Current game time in seconds
+        """
         target_hex = enemy.current_hex.get_neighbor(direction, self.hexes)
         logging.info(f"push {enemy} in direction {direction} toward {target_hex}")
+        
+        # If the target hex is broken, set up a callback to start drowning when push completes
+        if target_hex.state == HexState.BROKEN:
+            def on_push_complete():
+                logging.info(f"{enemy} pushed into water, starting drowning animation")
+                # Use a slight delay to ensure the push animation is fully complete
+                enemy.drown(pygame.time.get_ticks() / 1000.0)
+                
+            enemy.on_animation_complete = on_push_complete
+            logging.info(f"Set up drowning callback for {enemy}")
+        
+        # Start the push animation
         enemy.pushed(target_hex, current_time)
 
 
@@ -724,53 +829,27 @@ class Game:
         Args:
             current_time: Current game time in seconds
         """
-        # Clear the screen
-        self.screen.fill(settings.display.BACKGROUND_COLOR)
+        # Create a drawing surface
+        draw_surface = pygame.Surface((self.world_width, self.world_height), pygame.SRCALPHA)
+        draw_surface.fill((0, 0, 0, 0))  # Transparent background
         
-        # Process any pending hex effects
-        self.process_pending_hex_effects(current_time)
+        # Apply screen shake if active
+        shake_offset_x, shake_offset_y = self.apply_screen_shake(current_time)
         
-        # Calculate screen shake offset
-        shake_offset = self.apply_screen_shake(current_time)
-        
-        # Collect non-broken hexes for collision detection
-        non_broken_hexes = []
-        
-        # Create a temporary surface for drawing with shake effect
-        if self.is_screen_shaking:
-            temp_surface = pygame.Surface((settings.display.WINDOW_WIDTH, settings.display.WINDOW_HEIGHT))
-            temp_surface.fill(settings.display.BACKGROUND_COLOR)
-            draw_surface = temp_surface
-        else:
-            draw_surface = self.screen
-        
-        # Draw all hexes
-        for x in range(settings.hex_grid.GRID_WIDTH):
-            for y in range(settings.hex_grid.GRID_HEIGHT):
-                hex = self.hexes[x][y]
-                
-                # Only add to non-broken list if this hex is not broken
-                if hex.state != HexState.BROKEN:
-                    non_broken_hexes.append(hex)
-                
-                # Draw the hex
-                if hex.state in [HexState.BROKEN, HexState.BREAKING]:
-                    hex.draw(draw_surface, current_time, non_broken_hexes)
-                else:
+        # Draw hexes
+        for row in self.hexes:
+            for hex in row:
+                if hex:
                     hex.draw(draw_surface, current_time)
         
-        # Draw player using the Entity draw method
-        if self.player:
-            self.player.draw(draw_surface, current_time)
-            
-            # Update player animation
-            self.player.update(current_time)
-        else:
-            logging.warning("Warning: Player is None!")
-
-        for enemy in self.enemies:
-            enemy.draw(draw_surface, current_time)
-            enemy.update(current_time)
+        # Update all sprites
+        self.all_sprites.update(current_time)
+        
+        # Draw all sprites
+        # Note: We're not using the built-in draw method because our sprites have custom drawing logic
+        # Instead, we call the draw method on each sprite individually
+        for sprite in self.all_sprites:
+            sprite.draw(draw_surface, current_time)
         
         # Update and draw floating text animations
         active_texts = []
@@ -779,18 +858,18 @@ class Game:
             if text.is_active:
                 text.draw(draw_surface)
                 active_texts.append(text)
-        
-        # Remove inactive texts
         self.floating_texts = active_texts
         
-        # Debug info
-        debug_text = f"Player: {self.player.current_hex.grid_x}, {self.player.current_hex.grid_y}"
-        debug_surface = settings.display.font.render(debug_text, True, (255, 255, 255))
-        draw_surface.blit(debug_surface, (10, 10))
+        # Apply the draw surface to the screen with shake offset
+        self.screen.fill((0, 0, 0))  # Black background
+        self.screen.blit(draw_surface, (shake_offset_x, shake_offset_y))
         
-        # Apply screen shake by blitting the temp surface with an offset
-        if self.is_screen_shaking:
-            self.screen.blit(temp_surface, shake_offset)
+        # Draw debug info if enabled
+        if self.debug_mode:
+            self._draw_debug_info()
+        
+        # Update the display
+        pygame.display.flip()
     
     def start_screen_shake(self, current_time: float) -> None:
         """Start a screen shake effect.
@@ -922,48 +1001,135 @@ class Game:
         logging.info(f"JUMP from ({launch_hex.grid_x}, {launch_hex.grid_y}) to ({target_hex.grid_x}, {target_hex.grid_y})")
 
     def all_animations_completed_callback(self) -> None:
-        """ All blocking animations have completed. """
-        logging.info(f'Received animation completion callback. {self.game_state=}')
-
-        # reap dead enemies
-        self.enemies = [enemy for enemy in self.enemies if enemy.animation_type != 'dead']
-
-        # if any enemies are now in a BROKEN hex, we need to drown them
+        """Called when all animations have completed."""
+        logging.info("All animations completed")
+        
+        # Check for dead enemies and remove them
+        dead_enemies = [enemy for enemy in self.enemies if enemy.animation_type == "dead"]
+        if dead_enemies:
+            logging.info(f"Removing {len(dead_enemies)} dead enemies")
+            for enemy in dead_enemies:
+                logging.info(f"Removing dead enemy: {enemy}")
+                self.enemies.remove(enemy)
+                # Remove from sprite groups
+                self.enemy_sprites.remove(enemy)
+                self.all_sprites.remove(enemy)
+            
+        # Log the number of remaining enemies
+        if self.enemies:
+            logging.info(f"Remaining enemies: {len(self.enemies)}")
+        else:
+            logging.info("All enemies destroyed!")
+        
+        # Check if any enemies are in broken hexes and need to drown
+        current_time = pygame.time.get_ticks() / 1000.0
+        drowning_started = False
         for enemy in self.enemies:
             if enemy.current_hex.state == HexState.BROKEN and enemy.animation_type != "drown":
-                enemy.drown(current_time=pygame.time.get_ticks() / 1000.0 - self.start_time)
-                for fragment in enemy.current_hex.fragment_sprites:  # Assuming you store fragments in the hex
-                    fragment.apply_bump()
-
-        # if we started any new animations, we won't switch state yet
-        if self.animation_manager.blocking_animations > 0:
+                logging.info(f"Starting drowning for {enemy} in broken hex")
+                enemy.drown(current_time=current_time)
+                drowning_started = True
+                
+        # If we started new animations, don't switch state yet
+        if self.animation_manager.blocking_animations > 0 or drowning_started:
+            logging.info(f"Animations still in progress, not switching state. Blocking animations: {self.animation_manager.blocking_animations}")
             return
-
-        match self.game_state:
-            case GameState.PLAYER:
-                # all player-related animations have completed
-                self.game_state = GameState.ENEMY
-                self._enemy_ai()
-            case GameState.ENEMY:
-                # all enemy-related animations have completed
-                self.game_state = GameState.PLAYER
+            
+        # Process any pending hex effects
+        self.process_pending_hex_effects(current_time)
+        
+        # Handle state transitions
+        if self.game_state == GameState.PLAYER:
+            # Player's turn is complete, switch to enemy turn
+            self.game_state = GameState.ENEMY
+            logging.info("Switching to ENEMY turn")
+            self._enemy_ai()
+        elif self.game_state == GameState.ENEMY:
+            # Enemy's turn is complete, switch to player turn
+            self.game_state = GameState.PLAYER
+            logging.info("Switching to PLAYER turn")
+            self.turn_counter += 1
 
 
     def _enemy_ai(self) -> None:
-        current_time = pygame.time.get_ticks() / 1000.0 - self.start_time
+        """Run AI for all enemies."""
+        current_time = pygame.time.get_ticks() / 1000.0
+        
+        # First, remove any dead enemies that might still be in the list
+        dead_enemies = [enemy for enemy in self.enemies if enemy.animation_type == "dead"]
+        if dead_enemies:
+            logging.info(f"AI found {len(dead_enemies)} dead enemies to remove")
+            for enemy in dead_enemies:
+                logging.info(f"AI removing dead enemy: {enemy}")
+                self.enemies.remove(enemy)
+                # Remove from sprite groups
+                self.enemy_sprites.remove(enemy)
+                self.all_sprites.remove(enemy)
+        
+        # If there are no enemies, immediately switch back to player turn
+        if not self.enemies:
+            logging.info("No enemies left, switching back to player turn")
+            self.game_state = GameState.PLAYER
+            return
+            
+        # Track if any enemies moved
+        any_enemy_moved = False
+            
         for enemy in self.enemies:
+            # Skip dead or drowning enemies
+            if enemy.animation_type in ["dead", "drown"]:
+                logging.info(f"Skipping {enemy} with animation type {enemy.animation_type}")
+                continue
+                
             logging.debug(f'AI for {enemy}')
-            if self.player.current_hex in self.get_hex_neighbors(enemy.current_hex):
+            
+            # If player is adjacent, attack instead of moving
+            if self.player and self.player.current_hex in self.get_hex_neighbors(enemy.current_hex):
                 self.add_floating_text("ATTACK", enemy.current_hex.center)
                 continue
 
-            from .pathfinding import a_star # avoid circular dependencies
-            path = a_star(enemy.current_hex, self.player.current_hex)
-            logging.info(f'{path=}')
-            if path is not None and len(path) > 1:
-                enemy.move(target_hex=path[1], current_time=current_time)
-
-        if self.animation_manager.blocking_animations == 0:
+            # Find path to player
+            from .pathfinding import a_star  # avoid circular dependencies
+            if self.player:
+                path = a_star(enemy.current_hex, self.player.current_hex)
+                logging.info(f'{path=}')
+                if path is not None and len(path) > 1:
+                    enemy.move(target_hex=path[1], current_time=current_time)
+                    any_enemy_moved = True
+        
+        # If no enemies moved and no animations are running, we can immediately switch back to player turn
+        if not any_enemy_moved and self.animation_manager.blocking_animations == 0:
             self.game_state = GameState.PLAYER
+
+    def add_enemy(self, hex: Hex) -> None:
+        """Add an enemy to the game.
+        
+        Args:
+            hex: The hex to place the enemy on
+        """
+        enemy = Wolf(hex, self.animation_manager)
+        self.enemies.append(enemy)
+        
+        # Add enemy to sprite groups
+        self.enemy_sprites.add(enemy)
+        self.all_sprites.add(enemy)
+
+    def _hex_has_entity(self, hex: Hex) -> bool:
+        """Check if a hex has an entity on it.
+        
+        Args:
+            hex: The hex to check
+            
+        Returns:
+            True if the hex has an entity, False otherwise
+        """
+        if self.player and self.player.current_hex == hex:
+            return True
+            
+        for enemy in self.enemies:
+            if enemy.current_hex == hex:
+                return True
+                
+        return False
 
 
