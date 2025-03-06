@@ -3,18 +3,20 @@ from abc import ABC, abstractmethod
 import math
 import pygame
 from typing import Tuple, Optional, Any, Callable
-import time
+from pathlib import Path
 import logging
 
 from .animation_manager import AnimationManager
 from .hex import Hex
 from .hex_state import HexState
-from ..config.settings import display
+from ..config.settings import hex_grid, display
 
 # We'll use a TYPE_CHECKING approach to avoid circular imports
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .game import Game
+
+IMAGE_DIR = Path(__file__).parents[1] / 'images'
 
 class Entity(ABC):
     """Abstract base class for game entities like player and enemies."""
@@ -23,8 +25,7 @@ class Entity(ABC):
 
     def __init__(self, hex: Hex,
                  animation_manager: AnimationManager,
-                 glyph: str = "?",
-                 color: Tuple[int, int, int] = (255, 255, 255)):
+                 token: str):
         """Initialize the entity.
         
         Args:
@@ -37,8 +38,6 @@ class Entity(ABC):
 
         self.current_hex = hex
         self.target_hex = None
-        self.color = color
-        self.glyph = glyph
         self.radius = 20  # Default radius
         self.position = hex.center  # Current position (for animation)
         
@@ -50,7 +49,8 @@ class Entity(ABC):
         self.move_start_pos = (0, 0)
         self.move_end_pos = (0, 0)
         self.animation_manager = animation_manager
-        
+        self.image = pygame.transform.smoothscale(pygame.image.load(IMAGE_DIR / token), (hex_grid.RADIUS, hex_grid.RADIUS))
+
         # Callback for when animation completes
         self.on_animation_complete = None
 
@@ -203,8 +203,6 @@ class Entity(ABC):
         Args:
             screen: Pygame surface to draw on
             current_time: Current game time in seconds
-            scroll_x: Horizontal scroll offset (default 0)
-            scroll_y: Vertical scroll offset (default 0)
         """
         # Calculate position based on animation
         if self.is_moving:
@@ -216,33 +214,19 @@ class Entity(ABC):
             # Interpolate between start and end positions
             x = self.move_start_pos[0] * (1 - eased_progress) + self.move_end_pos[0] * eased_progress
             y = self.move_start_pos[1] * (1 - eased_progress) + self.move_end_pos[1] * eased_progress
-
-            # # Remove any jump arc
-            # # Check if animation is complete
-            # if progress >= 1.0:
-            #     self.is_moving = False
-            #     self.current_hex = self.target_hex
-            #     self.target_hex = None
-            #     x, y = self.current_hex.center
-            #
-            #     # Call the animation complete callback if it exists
-            #     if self.on_animation_complete:
-            #         self.on_animation_complete()
-            #         self.on_animation_complete = None
-            #
-            #     self.animation_manager.blocking_animations -= 1
         else:
             x, y = self.current_hex.center
 
-        # Draw the player as a circle with the glyph
-        pygame.draw.circle(screen, self.color, (x, y), self.radius)
+        # # Load and resize the wolf token to match the previous circle size
+        # token_size = self.radius * 2  # Match the diameter of the previous circle
+        # scaled_token = pygame.transform.smoothscale(self.image, (token_size, token_size))
+        #
+        # Get rectangle for proper centering
+        token_rect = self.image.get_rect(center=(x, y))
 
-        # Draw the glyph in white for better visibility
-        font = pygame.font.SysFont(display.FONT_NAME, int(self.radius * 1.5))
-        text = font.render(self.glyph, True, (255, 255, 255))  # White text
-        text_rect = text.get_rect(center=(x, y))
-        screen.blit(text, text_rect)
-        
+        # Draw the wolf token at the calculated position
+        screen.blit(self.image, token_rect.topleft)
+
 class Player(Entity):
     """Player entity that can move between hex tiles."""
     
@@ -252,7 +236,7 @@ class Player(Entity):
         Args:
             start_hex: The starting hex tile
         """
-        super().__init__(start_hex, animation_manager, "@", (255, 100, 100))
+        super().__init__(start_hex, animation_manager,  'player_token.png')
 
 
     def jump(self, target_hex, current_time):
@@ -327,7 +311,6 @@ class Wolf(Entity):
         """
         super().__init__(start_hex,
                          animation_manager=animation_manager,
-                         glyph="W",
-                         color=(255, 100, 100))
+                         token='wolf_token.png')
 
         self.animation_type = "none"  # Track the type of animation: "none", "move", "jump", "sprint"

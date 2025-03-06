@@ -27,7 +27,7 @@ class DisplayConfig:
     BACKGROUND_COLOR: Tuple[int, int, int] = (20, 20, 30)
     FONT_NAME: str = 'Arial'
     FONT_SIZE: int = 10
-    DRAW_OVERLAY: bool = True
+    DRAW_OVERLAY: bool = False
     font: pygame.font.Font = None
 
 
