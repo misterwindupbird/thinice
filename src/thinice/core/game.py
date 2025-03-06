@@ -1085,13 +1085,18 @@ class Game:
         any_enemy_moved = False
             
         for enemy in self.enemies:
+            logging.debug(f'AI for {enemy}')
+
             # Skip dead or drowning enemies
             if enemy.animation_type in ["dead", "drown"]:
                 logging.info(f"Skipping {enemy} with animation type {enemy.animation_type}")
                 continue
                 
-            logging.debug(f'AI for {enemy}')
-            
+            # If stunned, we lose our turn.
+            if enemy.stunned:
+                enemy.stunned = False
+                continue
+
             # If player is adjacent, attack instead of moving
             if self.player and self.player.current_hex in self.get_hex_neighbors(enemy.current_hex):
                 self.add_floating_text("ATTACK", enemy.current_hex.center)

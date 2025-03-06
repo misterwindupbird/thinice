@@ -61,6 +61,7 @@ class Entity(pygame.sprite.Sprite, ABC):
 
         # Callback for when animation completes
         self.on_animation_complete = None
+        self.stunned = False
 
     def __repr__(self):
         return f"{self.__class__.__name__}(ID={self.id})"
@@ -114,6 +115,7 @@ class Entity(pygame.sprite.Sprite, ABC):
         Returns:
             True if movement started, False if invalid move
         """
+        logging.info(f'{self} is moving {self.current_hex=} to {target_hex}')
         # Start animation
         self.target_hex = target_hex
         self.is_moving = True
@@ -121,6 +123,7 @@ class Entity(pygame.sprite.Sprite, ABC):
         self.animation_duration = 0.3  # Regular move is faster
         self.animation_type = "move"
 
+        assert self.current_hex.center == self.position
         self.move_start_pos = self.current_hex.center
         self.move_end_pos = target_hex.center
         
@@ -220,6 +223,8 @@ class Entity(pygame.sprite.Sprite, ABC):
         Args:
             progress: Animation progress from 0.0 to 1.0
         """
+        progress = max(0.0, progress)
+        
         # Interpolate position
         self.position = (
             self.move_start_pos[0] + (self.move_end_pos[0] - self.move_start_pos[0]) * progress,
@@ -367,6 +372,7 @@ class Wolf(Entity):
         self.animation_type = "pushed"
         self.move_start_pos = self.current_hex.center
         self.move_end_pos = target_hex.center
+        self.stunned = True
 
         logging.debug(f'{self}: pushed to {self.target_hex}')
         self.animation_manager.blocking_animations += 1
