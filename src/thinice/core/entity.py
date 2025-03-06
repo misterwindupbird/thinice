@@ -2,7 +2,7 @@
 from abc import ABC, abstractmethod
 import math
 import pygame
-from typing import Tuple, Optional, Any
+from typing import Tuple, Optional, Any, Callable
 import time
 import logging
 
@@ -18,7 +18,9 @@ if TYPE_CHECKING:
 
 class Entity(ABC):
     """Abstract base class for game entities like player and enemies."""
-    
+
+    _id_counter = 0
+
     def __init__(self, hex: Hex,
                  animation_manager: AnimationManager,
                  glyph: str = "?",
@@ -30,6 +32,9 @@ class Entity(ABC):
             glyph: Character to represent the entity
             color: RGB color tuple for the entity
         """
+        self.id = Entity._id_counter
+        Entity._id_counter += 1
+
         self.current_hex = hex
         self.target_hex = None
         self.color = color
@@ -48,16 +53,34 @@ class Entity(ABC):
         
         # Callback for when animation completes
         self.on_animation_complete = None
-    
+
+    def __repr__(self):
+        return f"{self.__class__.__name__}(ID={self.id})"
+
+    def __eq__(self, other):
+        """Entities are equal if they have the same ID."""
+        return isinstance(other, Entity) and self.id == other.id
+
+    def __hash__(self):
+        """Hash based on unique ID, making it usable in sets/dicts."""
+        return hash(self.id)
+
     def update(self, current_time: float) -> None:
         """Update the entity state.
         
         Args:
             current_time: Current game time in seconds
         """
+        # Calculate progress (0.0 to 1.0)
+        elapsed = current_time - self.animation_start_time
+        progress = min(1.0, elapsed / self.animation_duration)
+
+        if self.animation_type == "drown":
+            self._update_drown_animation(progress)
         if not self.is_moving:
             return
-        self._update_regular_animation(current_time)
+
+        self._update_regular_animation(progress)
     
     def move(self, target_hex: Hex, current_time: float) -> bool:
         """Start moving to an adjacent hex with animation.
@@ -88,7 +111,34 @@ class Entity(ABC):
         """Called when movement starts. Can be overridden by subclasses."""
         self.animation_manager.blocking_animations += 1
         logging.debug(f'{self.animation_manager.blocking_animations=}')
-    
+
+    def drown(self, current_time: float, completion_callback: Callable[[], None]) -> bool:
+
+        self.animation_manager.blocking_animations += 1
+        self.animation_start_time = current_time
+        self.animation_duration = 0.3
+        self.animation_type = "drown"
+        self.on_animation_complete = completion_callback
+
+        return True
+
+    def _update_drown_animation(self, progress: float) -> None:
+
+        if progress >= 1.0:
+
+            self.animation_manager.blocking_animations -= 1
+
+            # Call the on_animation_complete callback if it exists
+            if hasattr(self, 'on_animation_complete') and self.on_animation_complete:
+                self.on_animation_complete()
+                self.on_animation_complete = None
+
+            self.animation_type = "none"
+
+        else:
+            self.radius = int(20 * (1-progress))
+
+
     def get_adjacent_hexes(self) -> list:
         """Get list of adjacent hexes.
         
@@ -115,15 +165,12 @@ class Entity(ABC):
             return sys.modules['src.thinice.core.game'].Game.instance
         return None
 
-    def _update_regular_animation(self, current_time):
+    def _update_regular_animation(self, progress):
         """Update regular move or jump animation.
 
         Args:
             current_time: Current game time in seconds
         """
-        # Calculate progress (0.0 to 1.0)
-        elapsed = current_time - self.animation_start_time
-        progress = min(1.0, elapsed / self.animation_duration)
 
         # Interpolate position
         self.position = (
@@ -133,9 +180,12 @@ class Entity(ABC):
 
         # Check if animation is complete
         if progress >= 1.0:
+
             self.is_moving = False
             self.current_hex = self.target_hex
             self.position = self.current_hex.center
+
+            self.animation_manager.blocking_animations -= 1
 
             # Call the on_animation_complete callback if it exists
             if hasattr(self, 'on_animation_complete') and self.on_animation_complete:
@@ -143,8 +193,6 @@ class Entity(ABC):
                 self.on_animation_complete = None
 
             self.animation_type = "none"
-            self.animation_manager.blocking_animations -= 1
-            logging.debug(f'{self.animation_manager.blocking_animations=}')
 
     def draw(self, screen: pygame.Surface, current_time: float) -> None:
         """Draw the player with special animations for jumping.
