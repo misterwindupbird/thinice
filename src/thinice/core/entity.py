@@ -90,9 +90,6 @@ class Entity(pygame.sprite.Sprite, ABC):
         elapsed = current_time - self.animation_start_time
         progress = min(1.0, elapsed / self.animation_duration)
 
-        if self.animation_type != "none":
-            logging.debug(f"{self} Updated {self.animation_type}: {progress}")
-            
         # Handle different animation types
         if self.animation_type == "drown":
             self._update_drown_animation(progress)
@@ -103,7 +100,7 @@ class Entity(pygame.sprite.Sprite, ABC):
 
         # Handle regular movement animations
         self._update_regular_animation(progress)
-        
+
         # Update the rect position for Sprite
         self.rect.center = self.position
     
@@ -239,14 +236,14 @@ class Entity(pygame.sprite.Sprite, ABC):
             self.position = self.current_hex.center
             self.rect.center = self.position  # Update rect one final time
 
-            logging.debug(f'{self}: finished regular animation')
-            self.animation_manager.blocking_animations -= 1
-
             # Call the on_animation_complete callback if it exists
             if hasattr(self, 'on_animation_complete') and self.on_animation_complete:
                 callback = self.on_animation_complete
                 self.on_animation_complete = None
                 callback()  # Call the callback after clearing it to avoid recursion issues
+
+            logging.debug(f'{self}: finished regular animation')
+            self.animation_manager.blocking_animations -= 1
 
             # Reset animation type only if it's not being changed by the callback
             # This allows drowning to start properly after a push
@@ -298,12 +295,13 @@ class Player(Entity):
         logging.debug(f'{self}: started jump')
         self.animation_manager.blocking_animations += 1
     
-    def sprint(self, path, current_time):
+    def sprint(self, path, current_time, completion):
         """Move directly to the end hex of the path with a single animation.
         
         Args:
             path: List of hexes to sprint through (including start and end)
             current_time: Current game time in seconds
+            :param completion:
         """
         if len(path) < 2:
             return
@@ -317,6 +315,7 @@ class Player(Entity):
         self.move_start_pos = self.current_hex.center
         self.move_end_pos = end_hex.center
         self.animation_duration = 0.5  # Longer duration for sprint
+        self.on_animation_complete = completion
 
         # Add floating text for SPRINT
         game_instance = self._get_game_instance()

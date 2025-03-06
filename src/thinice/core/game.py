@@ -774,7 +774,16 @@ class Game:
         sprint_targets = self.get_valid_sprint_targets(self.player.current_hex)
         for target, path in sprint_targets:
             if clicked_hex == target:
-                self.player.sprint(path, current_time)
+
+                def sprint_completion():
+                    direction = path[-2].get_shared_edge_index(path[-1])
+                    logging.debug(f'{path=}, {direction=}')
+                    for push_dir in [(direction - 1) % 6, direction, (direction + 1) % 6]:
+                        for enemy in self.enemies:
+                            if path[-1].get_neighbor(push_dir, self.hexes) == enemy.current_hex:
+                                self.push_enemy(enemy, push_dir, pygame.time.get_ticks() / 1000.0)
+
+                self.player.sprint(path, current_time, sprint_completion)
                 return
                 
         # Check for JUMP action (2 hexes away)
