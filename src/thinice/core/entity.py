@@ -368,7 +368,7 @@ class Wolf(Entity):
         self.target_hex = target_hex
         self.is_moving = True
         self.animation_start_time = current_time
-        self.animation_duration = 0.2  # Regular move is faster
+        self.animation_duration = 0.1  # Regular move is faster
         self.animation_type = "pushed"
         self.move_start_pos = self.current_hex.center
         self.move_end_pos = target_hex.center
