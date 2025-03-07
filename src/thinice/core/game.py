@@ -1224,9 +1224,42 @@ class Game:
         for x in range(len(self.hexes)):
             for y in range(len(self.hexes[x])):
                 if self.hexes[x][y] and area.hex_states[x][y] is not None:
-                    self.hexes[x][y].state = area.hex_states[x][y]
+                    # Get the current and saved states
+                    current_hex = self.hexes[x][y]
+                    saved_state = area.hex_states[x][y]
+                    
+                    # Update color first 
                     if area.hex_colors[x][y]:
-                        self.hexes[x][y].color = area.hex_colors[x][y]
+                        current_hex.color = area.hex_colors[x][y]
+                    
+                    # Handle different hex states - just set the state without recreating visuals
+                    # The visual state will be restored from the existing sprites when drawn
+                    if saved_state in [HexState.CRACKED, HexState.BROKEN]:
+                        # Just set the state directly without creating new cracks
+                        # This avoids duplicate cracks
+                        current_hex.state = saved_state
+                        
+                        # Only create cracks if none exist yet
+                        if len(current_hex.cracks) == 0 and saved_state == HexState.CRACKED:
+                            # Add a few simple cracks
+                            edge_points = current_hex.edge_points
+                            # Add 3-5 random cracks
+                            num_cracks = random.randint(3, 5)
+                            for _ in range(num_cracks):
+                                # Pick a random edge point for the crack
+                                end_point = random.choice(edge_points)
+                                current_hex.add_straight_crack(end_point)
+                            
+                            # Add some secondary cracks
+                            current_hex.add_secondary_cracks()
+                        
+                        # For broken hexes, create ice fragments if needed
+                        if saved_state == HexState.BROKEN and not current_hex.ice_fragments:
+                            if hasattr(current_hex, '_find_ice_fragments'):
+                                current_hex._find_ice_fragments()
+                    else:
+                        # For other states, just set the state directly
+                        current_hex.state = saved_state
         
         # Clear current enemies
         self.enemies = []
