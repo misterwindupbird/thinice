@@ -217,6 +217,50 @@ class Entity(pygame.sprite.Sprite, ABC):
             return sys.modules['src.thinice.core.game'].Game.instance
         return None
 
+    def attack(self, target_entity, current_time: float, on_complete: Optional[Callable] = None) -> None:
+        """Perform an attack animation toward the target entity.
+        
+        The entity moves to the edge of its hex toward the target and back.
+        
+        Args:
+            target_entity: The entity being attacked
+            current_time: Current game time in seconds
+            on_complete: Optional callback to execute when animation completes
+        """
+        # Make sure we're at the center of our hex before starting
+        self.position = self.current_hex.center
+        self.rect.center = self.position
+        
+        self.animation_type = "attack"
+        self.is_moving = True
+        self.animation_start_time = current_time
+        self.animation_duration = 0.3  # Quick attack animation
+        
+        # Calculate the direction vector from this entity to the target
+        dx = target_entity.position[0] - self.position[0]
+        dy = target_entity.position[1] - self.position[1]
+        
+        # Normalize the vector
+        distance = math.sqrt(dx*dx + dy*dy)
+        if distance > 0:
+            dx /= distance
+            dy /= distance
+        
+        # Move 70% of the way toward the edge of the hex
+        from ..config.settings import hex_grid
+        edge_distance = hex_grid.RADIUS * 0.7
+        
+        # Calculate the attack position (toward the target)
+        attack_x = self.position[0] + dx * edge_distance
+        attack_y = self.position[1] + dy * edge_distance
+        
+        self.move_start_pos = self.position
+        self.move_end_pos = (attack_x, attack_y)
+        self.on_animation_complete = on_complete
+        
+        logging.debug(f'{self}: started attack animation toward {target_entity}')
+        self.animation_manager.blocking_animations += 1
+
     def _update_regular_animation(self, progress):
         """Update regular move or jump animation.
 
@@ -225,11 +269,26 @@ class Entity(pygame.sprite.Sprite, ABC):
         """
         progress = max(0.0, progress)
         
-        # Interpolate position
-        self.position = (
-            self.move_start_pos[0] + (self.move_end_pos[0] - self.move_start_pos[0]) * progress,
-            self.move_start_pos[1] + (self.move_end_pos[1] - self.move_start_pos[1]) * progress
-        )
+        # For attack animation, we want to go forward and then back
+        if self.animation_type == "attack":
+            # First half: move toward target
+            if progress < 0.5:
+                adjusted_progress = progress * 2  # Scale 0-0.5 to 0-1
+            # Second half: move back to original position
+            else:
+                adjusted_progress = 2 - (progress * 2)  # Scale 0.5-1 to 1-0
+            
+            # Interpolate position
+            self.position = (
+                self.move_start_pos[0] + (self.move_end_pos[0] - self.move_start_pos[0]) * adjusted_progress,
+                self.move_start_pos[1] + (self.move_end_pos[1] - self.move_start_pos[1]) * adjusted_progress
+            )
+        else:
+            # Interpolate position
+            self.position = (
+                self.move_start_pos[0] + (self.move_end_pos[0] - self.move_start_pos[0]) * progress,
+                self.move_start_pos[1] + (self.move_end_pos[1] - self.move_start_pos[1]) * progress
+            )
         
         # Update the rect position for Sprite
         self.rect.center = self.position
@@ -237,9 +296,16 @@ class Entity(pygame.sprite.Sprite, ABC):
         # Check if animation is complete
         if progress >= 1.0:
             self.is_moving = False
-            self.current_hex = self.target_hex
-            self.position = self.current_hex.center
-            self.rect.center = self.position  # Update rect one final time
+            
+            # For regular movement animations, update the current hex
+            if self.animation_type in ["move", "jump", "sprint", "pushed"]:
+                self.current_hex = self.target_hex
+                self.position = self.current_hex.center
+                self.rect.center = self.position  # Update rect one final time
+            # For attack animation, reset position to the center of the current hex
+            elif self.animation_type == "attack":
+                self.position = self.current_hex.center
+                self.rect.center = self.position
 
             # Call the on_animation_complete callback if it exists
             if hasattr(self, 'on_animation_complete') and self.on_animation_complete:
@@ -247,12 +313,12 @@ class Entity(pygame.sprite.Sprite, ABC):
                 self.on_animation_complete = None
                 callback()  # Call the callback after clearing it to avoid recursion issues
 
-            logging.debug(f'{self}: finished regular animation')
+            logging.debug(f'{self}: finished {self.animation_type} animation')
             self.animation_manager.blocking_animations -= 1
 
             # Reset animation type only if it's not being changed by the callback
             # This allows drowning to start properly after a push
-            if self.animation_type in ["move", "jump", "sprint", "pushed"]:
+            if self.animation_type in ["move", "jump", "sprint", "pushed", "attack"]:
                 self.animation_type = "none"
 
     def draw(self, screen: pygame.Surface, current_time: float) -> None:
@@ -358,12 +424,13 @@ class Wolf(Entity):
 
         self.animation_type = "none"  # Track the type of animation: "none", "move", "jump", "sprint"
 
-    def pushed(self, target_hex: Hex, current_time: float) -> None:
+    def pushed(self, target_hex: Hex, current_time: float, on_complete: Optional[Callable] = None) -> None:
         """Start pushed animation when the wolf is pushed by the player.
         
         Args:
             target_hex: The hex to push to
             current_time: Current game time in seconds
+            on_complete: Optional callback to execute when animation completes
         """
         self.target_hex = target_hex
         self.is_moving = True
@@ -373,6 +440,7 @@ class Wolf(Entity):
         self.move_start_pos = self.current_hex.center
         self.move_end_pos = target_hex.center
         self.stunned = True
+        self.on_animation_complete = on_complete
 
         logging.debug(f'{self}: pushed to {self.target_hex}')
         self.animation_manager.blocking_animations += 1

@@ -781,7 +781,7 @@ class Game:
                     for push_dir in [(direction - 1) % 6, direction, (direction + 1) % 6]:
                         for enemy in self.enemies:
                             if path[-1].get_neighbor(push_dir, self.hexes) == enemy.current_hex:
-                                self.push_enemy(enemy, push_dir, pygame.time.get_ticks() / 1000.0)
+                                self.push_enemy(enemy, push_dir, pygame.time.get_ticks() / 1000.0, do_attack=False)
 
                 self.player.sprint(path, current_time, sprint_completion)
                 return
@@ -807,29 +807,41 @@ class Game:
             self.player.move(clicked_hex, current_time)
 
 
-    def push_enemy(self, enemy: Wolf, direction: int, current_time: float) -> None:
+    def push_enemy(self, enemy: Wolf, direction: int, current_time: float, do_attack: bool = True) -> None:
         """Push an enemy in a direction.
         
         Args:
             enemy: The enemy to push
             direction: The direction to push in
             current_time: Current game time in seconds
+            do_attack: Whether to do the attack animation first (default: True)
         """
         target_hex = enemy.current_hex.get_neighbor(direction, self.hexes)
         logging.info(f"push {enemy} in direction {direction} toward {target_hex}")
         
-        # If the target hex is broken, set up a callback to start drowning when push completes
-        if target_hex.state == HexState.BROKEN:
-            def on_push_complete():
-                logging.info(f"{enemy} pushed into water, starting drowning animation")
-                # Use a slight delay to ensure the push animation is fully complete
-                enemy.drown(pygame.time.get_ticks() / 1000.0)
+        def start_push():
+            # If the target hex is broken, set up a callback to start drowning when push completes
+            if target_hex and target_hex.state == HexState.BROKEN:
+                def on_push_complete():
+                    logging.info(f"{enemy} pushed into water, starting drowning animation")
+                    # Use a slight delay to ensure the push animation is fully complete
+                    enemy.drown(current_time + enemy.animation_duration + (self.player.animation_duration if do_attack else 0))
                 
-            enemy.on_animation_complete = on_push_complete
-            logging.info(f"Set up drowning callback for {enemy}")
+                # Start the push animation with the drowning callback
+                enemy.pushed(target_hex, current_time + (self.player.animation_duration if do_attack else 0), on_push_complete)
+            else:
+                # Start the push animation without a callback
+                enemy.pushed(target_hex, current_time + (self.player.animation_duration if do_attack else 0))
+            
+            # Add floating text for PUSH
+            self.add_floating_text("PUSH", enemy.current_hex.center, (255, 0, 0))
         
-        # Start the push animation
-        enemy.pushed(target_hex, current_time)
+        if do_attack:
+            # First, perform the attack animation
+            self.player.attack(enemy, current_time, start_push)
+        else:
+            # Skip the attack animation and start the push directly
+            start_push()
 
 
     def _draw(self, current_time: float) -> None:
