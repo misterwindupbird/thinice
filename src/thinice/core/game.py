@@ -41,6 +41,10 @@ class Area:
         # Track if this area has been generated yet
         self.generated = False
 
+# Import WorldGenerator here, after Area is defined
+from .world_generator import WorldGenerator
+
+
 class GameRestartHandler(FileSystemEventHandler):
     """File system event handler for game auto-restart."""
     
@@ -103,6 +107,10 @@ class Game:
         self.areas = [[Area() for _ in range(self.supergrid_size)] 
                      for _ in range(self.supergrid_size)]
         
+        # Generate the entire world
+        world_generator = WorldGenerator(self)
+        world_generator.generate_world()
+        
         # Initialize world size with default values
         self.world_width = 0
         self.world_height = 0
@@ -110,17 +118,21 @@ class Game:
         # Initialize game state
         self.animation_manager = AnimationManager(on_finished=self.all_animations_completed_callback)
         self.hexes: List[List[Hex]] = []
-        self._init_hex_grid()  # This calculates world_width and world_height
-        self.start_time = pygame.time.get_ticks() / 1000.0
-
-        # Initialize sprite groups
+        
+        # Initialize entity collections
+        self.player = None
+        self.enemies = []
+        
+        # Initialize sprite groups (moved up before _init_hex_grid)
         self.all_sprites = pygame.sprite.Group()
         self.player_sprite = pygame.sprite.GroupSingle()
         self.enemy_sprites = pygame.sprite.Group()
         
+        self._init_hex_grid()  # This calculates world_width and world_height
+        self.start_time = pygame.time.get_ticks() / 1000.0
+        
         # Initialize player on a random SOLID hex
         self.player = self._init_player()
-        self.enemies = []
         
         # List to store active floating text animations
         self.floating_texts = []
@@ -226,11 +238,8 @@ class Game:
     def _init_hex_grid(self) -> None:
         """Initialize the hex grid.
         
-        - Map fills the entire screen
-        - Hexes not entirely on screen are automatically LAND
-        - 10 random hexes in the visible area are LAND
-        - Hexes adjacent to LAND are pure white
-        - The rest are SOLID with blue-grey gradient
+        Creates the hex objects with proper world coordinates.
+        Terrain generation is now handled by the WorldGenerator.
         """
         # Calculate hex dimensions
         hex_height = settings.hex_grid.RADIUS * 1.732  # sqrt(3)
@@ -249,11 +258,6 @@ class Game:
         logging.info(f"Window size: {settings.display.WINDOW_WIDTH}x{settings.display.WINDOW_HEIGHT}")
         logging.info(f"Hex radius: {settings.hex_grid.RADIUS}, spacing: {spacing_x}x{spacing_y}")
         
-        # Track all LAND hexes for adjacency check later
-        visible_area = []
-        edge_hexes = []
-        land_hexes = []
-        
         # Create the hex grid with proper world coordinates
         for x in range(settings.hex_grid.GRID_WIDTH):
             for y in range(settings.hex_grid.GRID_HEIGHT):
@@ -265,109 +269,23 @@ class Game:
                 if x % 2 == 1:
                     center_y += spacing_y / 2
                 
-                # Create the hex
-                is_land = False
-                
-                # Check if the hex is at the edge of the grid
-                if (x == 0 or x == settings.hex_grid.GRID_WIDTH - 1 or 
-                    y == 0 or y == settings.hex_grid.GRID_HEIGHT - 1):
-                    is_land = True
-                    edge_hexes.append((x, y))
-                # Check if the hex is not fully visible on screen
-                elif (center_x - settings.hex_grid.RADIUS < 0 or 
-                      center_x + settings.hex_grid.RADIUS > settings.display.WINDOW_WIDTH or
-                      center_y - settings.hex_grid.RADIUS < 0 or 
-                      center_y + settings.hex_grid.RADIUS > settings.display.WINDOW_HEIGHT):
-                    is_land = True
-                    edge_hexes.append((x, y))
-                else:
-                    visible_area.append((x, y))
-                
-                # Create the hex with the appropriate state
-                if is_land:
-                    # Generate a random green shade for land
-                    base_r, base_g, base_b = settings.land.BASE_COLOR
-                    color_variation = settings.land.COLOR_VARIATION
-                    r = min(255, max(0, base_r + random.randint(-color_variation, color_variation)))
-                    g = min(255, max(0, base_g + random.randint(-color_variation, color_variation)))
-                    b = min(255, max(0, base_b + random.randint(-color_variation, color_variation)))
-                    color = (r, g, b)
-                    self.hexes[x][y] = Hex(center_x, center_y, x, y, self.animation_manager, color=color, state=HexState.LAND)
-                    land_hexes.append((x, y))
-                else:
-                    # Create a regular ice hex with a pure white to blue-grey gradient
-                    # No pink/purple tints - pure cool blue-grey only
-                    
-                    # Random value between 0.0 and 1.0 to determine position in the color range
-                    color_position = random.random()
-                    
-                    # Create pure blue-grey by reducing red more dramatically
-                    # White (255,255,255) to blue-grey (220,240,255)
-                    ice_r = int(255 - (color_position * 35))  # Reduce red more (255 to 220)
-                    ice_g = int(255 - (color_position * 15))  # Keep green higher (255 to 240)
-                    ice_b = 255  # Keep blue at maximum
-                    
-                    # Very minimal variation to maintain color purity
-                    tiny_variation = 2
-                    ice_r = min(255, max(215, ice_r + random.randint(-tiny_variation, tiny_variation)))
-                    ice_g = min(255, max(235, ice_g + random.randint(-tiny_variation, tiny_variation)))
-                    ice_b = 255  # No variation in blue to ensure we stay in the blue spectrum
-                    
-                    ice_color = (ice_r, ice_g, ice_b)
-                    self.hexes[x][y] = Hex(center_x, center_y, x, y, self.animation_manager, color=ice_color)
+                # Create the hex with default state (will be updated by restore_area)
+                self.hexes[x][y] = Hex(center_x, center_y, x, y, self.animation_manager, state=HexState.SOLID)
         
-        # Select 10 random hexes from the visible area to be LAND
-        if len(visible_area) > 10:
-            random_land_positions = random.sample(visible_area, 10)
-            
-            for x, y in random_land_positions:
-                # Generate a random green shade for land
-                base_r, base_g, base_b = settings.land.BASE_COLOR
-                color_variation = settings.land.COLOR_VARIATION
-                r = min(255, max(0, base_r + random.randint(-color_variation, color_variation)))
-                g = min(255, max(0, base_g + random.randint(-color_variation, color_variation)))
-                b = min(255, max(0, base_b + random.randint(-color_variation, color_variation)))
-                color = (r, g, b)
-                
-                # Convert existing hex to LAND
-                self.hexes[x][y] = Hex(self.hexes[x][y].center[0], self.hexes[x][y].center[1], 
-                                      x, y,
-                                      animation_manager=self.animation_manager,
-                                      color=color,
-                                      state=HexState.LAND)
-                land_hexes.append((x, y))
+        # Load the current area's data
+        self._restore_area()
 
-        # Second pass: Make hexes adjacent to LAND hexes pure white
-        white_hexes_count = 0
-        for land_x, land_y in land_hexes:
-            # Get neighbors of this LAND hex
-            land_hex = self.hexes[land_x][land_y]
-            neighbors = self.get_hex_neighbors(land_hex)
-            
-            # Set each non-LAND neighbor to pure white
-            for neighbor in neighbors:
-                if neighbor.state != HexState.LAND:
-                    # Create a new hex with the same properties but pure white color
-                    pure_white = (255, 255, 255)
-                    self.hexes[neighbor.grid_x][neighbor.grid_y] = Hex(
-                        neighbor.center[0], neighbor.center[1], 
-                        neighbor.grid_x, neighbor.grid_y,
-                        animation_manager=self.animation_manager,
-                        color=pure_white
-                    )
-                    white_hexes_count += 1
-        
     def _init_player(self) -> Player:
         """Initialize the player entity on a random solid hex.
         
         Returns:
-            The player entity
+            The player entity or None if no valid position found
         """
         # Find all solid hexes
         solid_hexes = []
         for row in self.hexes:
             for hex in row:
-                if hex.state == HexState.SOLID:
+                if hex and hex.state == HexState.SOLID and not self._hex_has_entity(hex):
                     solid_hexes.append(hex)
         
         # Choose a random solid hex
@@ -376,12 +294,52 @@ class Game:
             player = Player(start_hex, self.animation_manager)
             
             # Add player to sprite groups
-            self.player_sprite.add(player)
-            self.all_sprites.add(player)
+            if hasattr(self, 'player_sprite'):
+                self.player_sprite.add(player)
+            if hasattr(self, 'all_sprites'):
+                self.all_sprites.add(player)
             
             return player
         else:
-            logging.error("No solid hexes found for player start position!")
+            logging.warning("No suitable solid hexes found for player start position. Converting a hex to SOLID.")
+            # Try to find at least one non-LAND hex that isn't occupied
+            non_land_hexes = []
+            for row in self.hexes:
+                for hex in row:
+                    if hex and hex.state != HexState.LAND and not self._hex_has_entity(hex):
+                        non_land_hexes.append(hex)
+            
+            if non_land_hexes:
+                hex = random.choice(non_land_hexes)
+                hex.state = HexState.SOLID  # Convert to SOLID
+                player = Player(hex, self.animation_manager)
+                
+                # Add player to sprite groups
+                if hasattr(self, 'player_sprite'):
+                    self.player_sprite.add(player)
+                if hasattr(self, 'all_sprites'):
+                    self.all_sprites.add(player)
+                
+                return player
+            
+            # Last resort: find any hex not at the edge
+            logging.error("No suitable hexes found! Trying a random interior hex.")
+            random_x = random.randint(2, len(self.hexes) - 3)
+            random_y = random.randint(2, len(self.hexes[0]) - 3)
+            if self.hexes[random_x][random_y]:
+                hex = self.hexes[random_x][random_y]
+                hex.state = HexState.SOLID  # Force to SOLID
+                player = Player(hex, self.animation_manager)
+                
+                # Add player to sprite groups
+                if hasattr(self, 'player_sprite'):
+                    self.player_sprite.add(player)
+                if hasattr(self, 'all_sprites'):
+                    self.all_sprites.add(player)
+                
+                return player
+            
+            logging.error("Could not create player - no valid hexes found!")
             return None
     
     def get_hex_neighbors(self, hex: Hex) -> List[Hex]:
@@ -1179,9 +1137,11 @@ class Game:
         enemy = Wolf(hex, self.animation_manager)
         self.enemies.append(enemy)
         
-        # Add enemy to sprite groups
-        self.enemy_sprites.add(enemy)
-        self.all_sprites.add(enemy)
+        # Add enemy to sprite groups if they exist
+        if hasattr(self, 'enemy_sprites'):
+            self.enemy_sprites.add(enemy)
+        if hasattr(self, 'all_sprites'):
+            self.all_sprites.add(enemy)
 
     def _hex_has_entity(self, hex: Hex) -> bool:
         """Check if a hex has an entity on it.
@@ -1192,12 +1152,13 @@ class Game:
         Returns:
             True if the hex has an entity, False otherwise
         """
-        if self.player and self.player.current_hex == hex:
+        if hasattr(self, 'player') and self.player and self.player.current_hex == hex:
             return True
             
-        for enemy in self.enemies:
-            if enemy.current_hex == hex:
-                return True
+        if hasattr(self, 'enemies'):
+            for enemy in self.enemies:
+                if enemy.current_hex == hex:
+                    return True
                 
         return False
 
@@ -1255,27 +1216,14 @@ class Game:
                     if area.hex_colors[x][y]:
                         current_hex.color = area.hex_colors[x][y]
                     
-                    # Handle different hex states
+                    # Restore hex state with appropriate handling for special states
                     if saved_state == HexState.CRACKED:
+                        # For cracked hexes, restore crack data if available
                         key = (x, y)
-                        # Check if we have saved crack data for this hex
                         if key in area.cracked_hex_data:
-                            # Restore exact crack geometry
-                            current_hex.cracks = area.cracked_hex_data[key]['cracks']
-                        else:
-                            # Only create cracks if none exist yet
-                            if len(current_hex.cracks) == 0:
-                                # Add a few simple cracks
-                                edge_points = current_hex.edge_points
-                                # Add 3-5 random cracks
-                                num_cracks = random.randint(3, 5)
-                                for _ in range(num_cracks):
-                                    # Pick a random edge point for the crack
-                                    end_point = random.choice(edge_points)
-                                    current_hex.add_straight_crack(end_point)
-                                
-                                # Add some secondary cracks
-                                current_hex.add_secondary_cracks()
+                            hex_data = area.cracked_hex_data[key]
+                            if 'cracks' in hex_data:
+                                current_hex.cracks = hex_data['cracks']
                         
                         # Set state to CRACKED
                         current_hex.state = HexState.CRACKED
@@ -1299,10 +1247,13 @@ class Game:
         
         # Clear current enemies
         self.enemies = []
-        self.enemy_sprites.empty()
+        # Check if sprite groups exist before using them
+        if hasattr(self, 'enemy_sprites'):
+            self.enemy_sprites.empty()
         
-        # For now, we don't restore enemy positions, just log the count
-        logging.info(f"Area has {area.enemy_count} enemies (not spawning them for now)")
+        # Don't spawn enemies automatically - just log the count
+        if area.enemy_count > 0:
+            logging.info(f"Area has {area.enemy_count} enemies (not spawning them automatically)")
 
     def navigate_area(self, dx, dy):
         """Navigate to a different area in the supergrid.
@@ -1331,12 +1282,14 @@ class Game:
         for enemy in self.enemies:
             enemy.kill()  # Remove from all sprite groups
         self.enemies = []
-        self.enemy_sprites.empty()
+        if hasattr(self, 'enemy_sprites'):
+            self.enemy_sprites.empty()
         
         # Clear ice fragment sprites
-        for sprite in list(self.all_sprites):
-            if hasattr(sprite, '__class__') and sprite.__class__.__name__ == 'IceFragment':
-                sprite.kill()
+        if hasattr(self, 'all_sprites'):
+            for sprite in list(self.all_sprites):
+                if hasattr(sprite, '__class__') and sprite.__class__.__name__ == 'IceFragment':
+                    sprite.kill()
         
         # Reset all hexes to clear any crack data
         # BUT don't clear fragment sprites or broken surfaces
@@ -1346,19 +1299,18 @@ class Game:
                     # Clear cracks only for now - we'll restore them properly in _restore_area
                     hex.cracks = []
         
-        # Load the new area
+        # Load the new area - all areas should already be generated
         area = self.areas[self.supergrid_position[0]][self.supergrid_position[1]]
-        if area.generated:
-            # Restore existing area
-            self._restore_area()
-        else:
-            # Generate new area with existing code
-            self._init_hex_grid()
         
+        # Always restore the area (all areas should be generated)
+        self._restore_area()
+
         # Reset player position
         if self.player:
-            self.player_sprite.empty()
-            self.all_sprites.remove(self.player)
+            if hasattr(self, 'player_sprite'):
+                self.player_sprite.empty()
+            if hasattr(self, 'all_sprites'):
+                self.all_sprites.remove(self.player)
         self.player = self._init_player()
         
         logging.info(f"Navigated to supergrid position: {self.supergrid_position}")
