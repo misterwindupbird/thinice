@@ -1,10 +1,13 @@
 """World generator for creating and populating the game world."""
 import random
 import logging
-from typing import List, Tuple, Any
+from typing import Any
+import noise
+import numpy as np
 
 from .hex_state import HexState
-from ..config import settings
+from ..config.settings import hex_grid, worldgen, land
+
 
 class WorldGenerator:
     """Generates the world with a border and area-specific land hexes."""
@@ -20,8 +23,8 @@ class WorldGenerator:
         self.areas = game.areas
         
         # Calculate the dimensions of the entire world in hexes
-        self.world_hex_width = settings.hex_grid.GRID_WIDTH * self.supergrid_size
-        self.world_hex_height = settings.hex_grid.GRID_HEIGHT * self.supergrid_size
+        self.world_hex_width = hex_grid.GRID_WIDTH * self.supergrid_size
+        self.world_hex_height = hex_grid.GRID_HEIGHT * self.supergrid_size
         
         # These will store the state of the entire world
         self.world_hex_states = None
@@ -33,16 +36,21 @@ class WorldGenerator:
         
         # Initialize the world grid
         self._init_world_grid()
-        
-        # Generate 2-hex thick land border around the entire world
-        self._generate_world_border()
-        
+
+        match worldgen.ALGORITHM:
+            case "box":
+                # Generate 2-hex thick land border around the entire world
+                self._generate_world_border()
+
+            case "noise":
+                self._generate_world_from_noise()
+
         # Process each area
         for x in range(self.supergrid_size):
             for y in range(self.supergrid_size):
                 # Generate random land hexes based on area coordinates
                 self._generate_area(x, y)
-        
+
         # Fill remaining hexes with ice
         self._fill_world_with_ice()
         
@@ -55,11 +63,44 @@ class WorldGenerator:
                                 for _ in range(self.world_hex_width)]
         self.world_hex_colors = [[None for _ in range(self.world_hex_height)] 
                                 for _ in range(self.world_hex_width)]
-    
+
+    def _generate_world_from_noise(self):
+
+        # Generate a heightmap for the entire world
+        world_heightmap = np.zeros((self.world_hex_width, self.world_hex_height))
+
+        for x in range(self.world_hex_width):
+            for y in range(self.world_hex_height):
+                nx, ny = x / worldgen.SCALE, y / worldgen.SCALE  # Normalize coordinates for noise
+                world_heightmap[x, y] = noise.pnoise2(
+                    nx, ny,
+                    octaves=worldgen.OCTAVES,
+                    persistence=worldgen.PERSISTENCE,
+                    lacunarity=worldgen.LACUNARITY,
+                    repeatx=self.world_hex_width,  # Ensure seamless tiling
+                    repeaty=self.world_hex_height,
+                    base=worldgen.SEED
+               )
+
+        # Normalize height values to 0-1
+        min_val, max_val = world_heightmap.min(), world_heightmap.max()
+        world_heightmap = (world_heightmap - min_val) / (max_val - min_val)
+
+        # Determine land vs. ice threshold (75% of hexes should be ice)
+        threshold = np.percentile(world_heightmap, worldgen.ICE_PERCENT)
+
+        for x in range(self.world_hex_width):
+            for y in range(self.world_hex_height):
+                if world_heightmap[x, y] > threshold:
+                    self.world_hex_states[x][y] = HexState.LAND
+                    self.world_hex_colors[x][y] = self._generate_land_color()
+
+
+
     def _generate_world_border(self):
         """Generate a 2-hex thick land border around the entire world."""
         border_width = 2  # Width of the border in hexes
-        
+
         for x in range(self.world_hex_width):
             for y in range(self.world_hex_height):
                 # Check if this hex is within the border
@@ -82,8 +123,8 @@ class WorldGenerator:
         num_land_hexes = grid_x * grid_y
         
         # Get the world coordinates for this area
-        area_width = settings.hex_grid.GRID_WIDTH
-        area_height = settings.hex_grid.GRID_HEIGHT
+        area_width = hex_grid.GRID_WIDTH
+        area_height = hex_grid.GRID_HEIGHT
         world_start_x = grid_x * area_width
         world_start_y = grid_y * area_height
         
@@ -158,8 +199,8 @@ class WorldGenerator:
     
     def _divide_into_areas(self):
         """Divide the world grid into individual areas."""
-        area_width = settings.hex_grid.GRID_WIDTH
-        area_height = settings.hex_grid.GRID_HEIGHT
+        area_width = hex_grid.GRID_WIDTH
+        area_height = hex_grid.GRID_HEIGHT
         
         for grid_x in range(self.supergrid_size):
             for grid_y in range(self.supergrid_size):
@@ -221,8 +262,8 @@ class WorldGenerator:
         Returns:
             RGB color tuple
         """
-        base_r, base_g, base_b = settings.land.BASE_COLOR
-        variation = settings.land.COLOR_VARIATION
+        base_r, base_g, base_b = land.BASE_COLOR
+        variation = land.COLOR_VARIATION
         
         r = min(255, max(0, base_r + random.randint(-variation, variation)))
         g = min(255, max(0, base_g + random.randint(-variation, variation)))

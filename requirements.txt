@@ -2,12 +2,14 @@ certifi==2025.1.31
 cffi==1.17.1
 cryptography==44.0.0
 debugpy==1.8.12
-numpy>=1.20.0
+noise==1.2.2
+numpy==2.2.3
 packaging==24.2
 pillow==11.1.0
 pybind11==2.13.6
 pycparser==2.22
-pygame>=2.5.0
-watchdog>=3.0.0
+pygame==2.6.1
+scipy==1.15.2
+-e git+https://github.com/misterwindupbird/thinice.git@87b61340eb6d6b8f401a0cee19d4f199c8d48e9e#egg=thinice
+watchdog==6.0.0
 wheel @ file:///opt/homebrew/Cellar/python%403.13/3.13.2/libexec/wheel-0.45.1-py3-none-any.whl#sha256=b9235939e2096903717cb6bfc132267f8a7e46deb2ec3ef9c5e234ea301795d0
-scipy>=1.7.0

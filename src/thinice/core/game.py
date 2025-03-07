@@ -16,6 +16,7 @@ from .hex_state import HexState
 from .entity import Player, Wolf
 from .floating_text import FloatingText
 from ..config import settings
+from ..config.settings import worldgen
 
 # Add a test logging statement to verify logging is working
 logging.info("Logging test: Game started")
@@ -102,7 +103,7 @@ class Game:
         self.shift_pressed = False  # Track if shift is being pressed
         
         # Initialize supergrid
-        self.supergrid_size = 15
+        self.supergrid_size = worldgen.SUPERGRID_SIZE
         self.supergrid_position = [7, 7]  # Start in middle of supergrid
         self.areas = [[Area() for _ in range(self.supergrid_size)] 
                      for _ in range(self.supergrid_size)]

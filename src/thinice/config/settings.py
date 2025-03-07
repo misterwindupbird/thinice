@@ -73,6 +73,17 @@ class LandConfig:
     BASE_COLOR: Tuple[int, int, int] = (34, 139, 34)  # ForestGreen
     COLOR_VARIATION: int = 20  # Variation in green shades
 
+@dataclass
+class WorldGenerationConfig:
+    SUPERGRID_SIZE = 15
+    ALGORITHM = "noise" # noise, box
+    SCALE = 20.
+    OCTAVES = 4
+    PERSISTENCE = 0.5
+    LACUNARITY = 2.0
+    SEED = 32
+    ICE_PERCENT = 75
+
 # Create global instances
 game_settings = GameSettings()
 display = DisplayConfig()
@@ -80,4 +91,5 @@ hex_grid = HexConfig()
 crack = CrackConfig()
 water = WaterConfig()
 animation = AnimationConfig()
-land = LandConfig() 
+land = LandConfig()
+worldgen = WorldGenerationConfig()
