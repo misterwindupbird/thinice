@@ -560,7 +560,8 @@ class Game:
             List of tuples containing (target_hex, path) where path is the list of hexes from start to end
         """
         valid_targets = []
-        
+
+        enemy_hexes = {enemy.current_hex for enemy in self.enemies}
         for edge_index in range(6):
             path = [player_hex]
             current_hex = player_hex
@@ -568,7 +569,7 @@ class Game:
             
             for step in range(3):
                 next_hex = current_hex.get_neighbor(edge_index, self.hexes)
-                if not next_hex or next_hex.state in [HexState.LAND, HexState.BROKEN]:
+                if not next_hex or next_hex.state != HexState.SOLID or next_hex in enemy_hexes:
                     valid_path = False
                     break
                 path.append(next_hex)
@@ -748,7 +749,7 @@ class Game:
             return
 
         # Check if clicked on player's hex (STOMP action)
-        if clicked_hex == self.player.current_hex:
+        if clicked_hex == self.player.current_hex and clicked_hex.state == HexState.SOLID:
             # Create floating text for STOMP action - no "CRACK" text for STOMP
             self.add_floating_text("STOMP!", self.player.current_hex.center, (255, 0, 0))
 
@@ -820,22 +821,25 @@ class Game:
         logging.info(f"push {enemy} in direction {direction} toward {target_hex}")
         
         def start_push():
+            push_current_time = pygame.time.get_ticks() / 1000.0
+
             # If the target hex is broken, set up a callback to start drowning when push completes
             if target_hex and target_hex.state == HexState.BROKEN:
                 def on_push_complete():
                     logging.info(f"{enemy} pushed into water, starting drowning animation")
                     # Use a slight delay to ensure the push animation is fully complete
-                    enemy.drown(current_time + enemy.animation_duration + (self.player.animation_duration if do_attack else 0))
+                    enemy.drown(push_current_time + enemy.animation_duration)
                 
                 # Start the push animation with the drowning callback
-                enemy.pushed(target_hex, current_time + (self.player.animation_duration if do_attack else 0), on_push_complete)
+                enemy.pushed(target_hex, push_current_time, on_push_complete)
             else:
                 # Start the push animation without a callback
-                enemy.pushed(target_hex, current_time + (self.player.animation_duration if do_attack else 0))
+                enemy.pushed(target_hex, push_current_time)
             
             # Add floating text for PUSH
             self.add_floating_text("PUSH", enemy.current_hex.center, (255, 0, 0))
-        
+            self.start_screen_shake(push_current_time, intensity=3, duration=.1)
+
         if do_attack:
             # First, perform the attack animation
             self.player.attack(enemy, current_time, start_push)
@@ -892,15 +896,15 @@ class Game:
         # Update the display
         pygame.display.flip()
     
-    def start_screen_shake(self, current_time: float) -> None:
+    def start_screen_shake(self, current_time: float, duration: float = 0.3, intensity: int = 5) -> None:
         """Start a screen shake effect.
         
         Args:
             current_time: Current game time in seconds
         """
         self.screen_shake_start = current_time
-        self.screen_shake_duration = 0.3  # seconds
-        self.screen_shake_intensity = 5  # pixels
+        self.screen_shake_duration = duration  # seconds
+        self.screen_shake_intensity = intensity  # pixels
         self.is_screen_shaking = True
     
     def schedule_surrounding_hex_effects(self, center_hex: Hex, neighbors: List[Hex], current_time: float) -> None:
