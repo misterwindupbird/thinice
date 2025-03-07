@@ -5,6 +5,7 @@ import math
 import pygame
 from typing import List, Tuple, Optional, Dict, Set, Union
 import numpy
+from pathlib import Path
 
 from .animation_manager import AnimationManager
 from .hex_state import HexState
@@ -18,6 +19,7 @@ from ..utils.geometry import (
     point_in_hex
 )
 
+TILE_CACHE = {}
 
 class Hex:
     """Represents a hexagonal tile in the game grid."""
@@ -26,7 +28,8 @@ class Hex:
                  grid_x: int, grid_y: int,
                  animation_manager: AnimationManager,
                  color: Tuple[int, int, int] = None,
-                 state: HexState = HexState.SOLID):
+                 state: HexState = HexState.SOLID,
+                 height: float = 0):
         """Initialize a new hex tile.
         
         Args:
@@ -45,6 +48,7 @@ class Hex:
         self.state = state
         self.cracks: List[Crack] = []
         self.color = color if color else self._init_color()
+        self.height = height
         
         # For broken ice fragments
         self.ice_fragments = []
@@ -1209,6 +1213,28 @@ class Hex:
     def _draw_land(self, screen: pygame.Surface) -> None:
         """Draw the land state."""
         pygame.draw.polygon(screen, self.color, self.vertices)
+
+        # Load and resize tile image once, cache it
+        # logging.debug(f"{self.height=}")
+        if len(TILE_CACHE) == 0:
+            for height, file in hex_grid.TILES.items():
+                tile_path = Path(__file__).parents[1] / file
+                original_tile = pygame.image.load(str(tile_path)).convert_alpha()
+                TILE_CACHE[height] = pygame.transform.smoothscale(original_tile, (hex_grid.RADIUS * 1.2, hex_grid.RADIUS * 1.2))
+
+        # Blit the cached tile image centered on the hex
+        if self.height > 0.25:
+            tile_image = TILE_CACHE["peak"]
+        elif self.height > 0.2:
+            tile_image = TILE_CACHE["high"]
+        elif self.height > 0.1:
+            tile_image = TILE_CACHE["mid"]
+        else:
+            tile_image = TILE_CACHE["low"]
+
+        tile_rect = tile_image.get_rect(center=self.center)
+        screen.blit(tile_image, tile_rect)
+
         if display.DRAW_OVERLAY:
             text = display.font.render(f"({self.grid_x},{self.grid_y})", True, hex_grid.TEXT_COLOR)
             text_rect = text.get_rect(center=self.center)

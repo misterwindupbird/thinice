@@ -31,7 +31,9 @@ class Area:
                           for _ in range(settings.hex_grid.GRID_WIDTH)]
         self.hex_colors = [[None for _ in range(settings.hex_grid.GRID_HEIGHT)] 
                           for _ in range(settings.hex_grid.GRID_WIDTH)]
-        
+        self.hex_heightmap = [[None for _ in range(settings.hex_grid.GRID_HEIGHT)]
+                          for _ in range(settings.hex_grid.GRID_WIDTH)]
+
         # Store complete hex data for BROKEN and CRACKED hexes
         self.broken_hex_data = {}  # Key: (x, y), Value: dict of hex properties for BROKEN hexes
         self.cracked_hex_data = {}  # Key: (x, y), Value: dict of hex properties for CRACKED hexes
@@ -1213,9 +1215,8 @@ class Game:
                     current_hex = self.hexes[x][y]
                     saved_state = area.hex_states[x][y]
                     
-                    # Update color first 
-                    if area.hex_colors[x][y]:
-                        current_hex.color = area.hex_colors[x][y]
+                    current_hex.color = area.hex_colors[x][y]
+                    current_hex.height = area.hex_heightmap[x][y]
                     
                     # Restore hex state with appropriate handling for special states
                     if saved_state == HexState.CRACKED:

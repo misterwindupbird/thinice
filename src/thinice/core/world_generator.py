@@ -29,6 +29,7 @@ class WorldGenerator:
         # These will store the state of the entire world
         self.world_hex_states = None
         self.world_hex_colors = None
+        self.world_hex_heightmap = None
     
     def generate_world(self):
         """Generate the world with 2-hex border and area-specific random land hexes."""
@@ -67,12 +68,12 @@ class WorldGenerator:
     def _generate_world_from_noise(self):
 
         # Generate a heightmap for the entire world
-        world_heightmap = np.zeros((self.world_hex_width, self.world_hex_height))
+        self.world_hex_heightmap = np.zeros((self.world_hex_width, self.world_hex_height))
 
         for x in range(self.world_hex_width):
             for y in range(self.world_hex_height):
                 nx, ny = x / worldgen.SCALE, y / worldgen.SCALE  # Normalize coordinates for noise
-                world_heightmap[x, y] = noise.pnoise2(
+                self.world_hex_heightmap[x, y] = noise.pnoise2(
                     nx, ny,
                     octaves=worldgen.OCTAVES,
                     persistence=worldgen.PERSISTENCE,
@@ -83,18 +84,18 @@ class WorldGenerator:
                )
 
         # Normalize height values to 0-1
-        min_val, max_val = world_heightmap.min(), world_heightmap.max()
-        world_heightmap = (world_heightmap - min_val) / (max_val - min_val)
+        min_val, max_val = self.world_hex_heightmap.min(), self.world_hex_heightmap.max()
+        self.world_hex_heightmap = (self.world_hex_heightmap - min_val) / (max_val - min_val)
 
         # Determine land vs. ice threshold (75% of hexes should be ice)
-        threshold = np.percentile(world_heightmap, worldgen.ICE_PERCENT)
+        threshold = np.percentile(self.world_hex_heightmap, worldgen.ICE_PERCENT)
+        self.world_hex_heightmap -= threshold
 
         for x in range(self.world_hex_width):
             for y in range(self.world_hex_height):
-                if world_heightmap[x, y] > threshold:
+                if self.world_hex_heightmap[x][y] > 0:
                     self.world_hex_states[x][y] = HexState.LAND
-                    self.world_hex_colors[x][y] = self._generate_land_color()
-
+                    self.world_hex_colors[x][y] = (0, 0, 0)
 
 
     def _generate_world_border(self):
@@ -118,22 +119,7 @@ class WorldGenerator:
         """
         # Mark area as generated
         self.areas[grid_x][grid_y].generated = True
-        
-        # Calculate number of random land hexes (grid_x * grid_y)
-        num_land_hexes = grid_x * grid_y
-        
-        # Get the world coordinates for this area
-        area_width = hex_grid.GRID_WIDTH
-        area_height = hex_grid.GRID_HEIGHT
-        world_start_x = grid_x * area_width
-        world_start_y = grid_y * area_height
-        
-        # Add random land hexes in the interior of this area
-        self._add_random_land_in_area(world_start_x, world_start_y, area_width, area_height, num_land_hexes)
-        
-        # Set a random number of enemies
-        self.areas[grid_x][grid_y].enemy_count = random.randint(1, 3)
-    
+
     def _add_random_land_in_area(self, start_x, start_y, width, height, count):
         """Add random land hexes in a specific area region.
         
@@ -162,7 +148,7 @@ class WorldGenerator:
             
             # Set to LAND
             self.world_hex_states[x][y] = HexState.LAND
-            self.world_hex_colors[x][y] = self._generate_land_color()
+            self.world_hex_colors[x][y] = (0, 255, 0)
     
     def _fill_world_with_ice(self):
         """Fill all remaining hexes with ice, then divide into areas."""
@@ -227,6 +213,7 @@ class WorldGenerator:
                         # Copy state and color
                         area.hex_states[local_x][local_y] = self.world_hex_states[world_x][world_y]
                         area.hex_colors[local_x][local_y] = self.world_hex_colors[world_x][world_y]
+                        area.hex_heightmap[local_x][local_y] = self.world_hex_heightmap[world_x][world_y]
     
     def _get_hex_neighbors(self, x, y):
         """Get the coordinates of neighboring hexes.
@@ -256,20 +243,20 @@ class WorldGenerator:
         
         return neighbors
     
-    def _generate_land_color(self):
-        """Generate a random color for land hexes.
-        
-        Returns:
-            RGB color tuple
-        """
-        base_r, base_g, base_b = land.BASE_COLOR
-        variation = land.COLOR_VARIATION
-        
-        r = min(255, max(0, base_r + random.randint(-variation, variation)))
-        g = min(255, max(0, base_g + random.randint(-variation, variation)))
-        b = min(255, max(0, base_b + random.randint(-variation, variation)))
-        
-        return (r, g, b)
+    # def _generate_land_color(self):
+    #     """Generate a random color for land hexes.
+    #
+    #     Returns:
+    #         RGB color tuple
+    #     """
+    #     base_r, base_g, base_b = land.BASE_COLOR
+    #     variation = land.COLOR_VARIATION
+    #
+    #     r = min(255, max(0, base_r + random.randint(-variation, variation)))
+    #     g = min(255, max(0, base_g + random.randint(-variation, variation)))
+    #     b = min(255, max(0, base_b + random.randint(-variation, variation)))
+    #
+    #     return (r, g, b)
     
     def _generate_ice_color(self):
         """Generate a color for ice hexes (blue-grey gradient).

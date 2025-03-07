@@ -41,6 +41,11 @@ class HexConfig:
     TEXT_COLOR: Tuple[int, int, int] = (100, 120, 140)
     # ICE_BASE_COLOR: Tuple[int, int, int] = (245, 245, 250)
     MAX_FRAGMENT_SIZE_PERCENT: float = 0.2  # Maximum fragment size as percentage of hex area (15%)
+    TILES = {"low": "images/tiles/Desert.png",
+             "mid": "images/tiles/SnowWaste.png",
+             "high": "images/tiles/IcyConnifer.png",
+             "peak": "images/tiles/Connifer.png"}
+
 
 @dataclass
 class CrackConfig:
@@ -77,7 +82,7 @@ class LandConfig:
 class WorldGenerationConfig:
     SUPERGRID_SIZE = 15
     ALGORITHM = "noise" # noise, box
-    SCALE = 20.
+    SCALE = 5.
     OCTAVES = 4
     PERSISTENCE = 0.5
     LACUNARITY = 2.0
