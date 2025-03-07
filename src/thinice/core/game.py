@@ -31,6 +31,12 @@ class Area:
         self.hex_colors = [[None for _ in range(settings.hex_grid.GRID_HEIGHT)] 
                           for _ in range(settings.hex_grid.GRID_WIDTH)]
         
+        # Store complete hex data for BROKEN hexes
+        self.broken_hex_data = {}  # Key: (x, y), Value: dict of hex properties
+        
+        # Store sprite groups for each hex
+        self.hex_sprite_groups = {}  # Key: (x, y), Value: sprite group for that hex
+        
         # Just store enemy count, not their positions
         self.enemy_count = 0
         
@@ -902,9 +908,10 @@ class Game:
         
         # Draw all sprites
         # Note: We're not using the built-in draw method because our sprites have custom drawing logic
-        # Instead, we call the draw method on each sprite individually
         for sprite in self.all_sprites:
-            sprite.draw(draw_surface, current_time)
+            # Skip IceFragment sprites - they're drawn by their parent hex
+            if not hasattr(sprite, '__class__') or sprite.__class__.__name__ != 'IceFragment':
+                sprite.draw(draw_surface, current_time)
         
         # Update and draw floating text animations
         active_texts = []
@@ -1206,8 +1213,22 @@ class Game:
         for x in range(len(self.hexes)):
             for y in range(len(self.hexes[x])):
                 if self.hexes[x][y]:
-                    area.hex_states[x][y] = self.hexes[x][y].state
-                    area.hex_colors[x][y] = self.hexes[x][y].color
+                    hex_obj = self.hexes[x][y]
+                    area.hex_states[x][y] = hex_obj.state
+                    area.hex_colors[x][y] = hex_obj.color
+                    
+                    # For broken hexes, save more complete data
+                    if hex_obj.state == HexState.BROKEN:
+                        key = (x, y)
+                        # Save the sprite group and broken surface
+                        area.hex_sprite_groups[key] = hex_obj.fragment_sprites
+                        
+                        # Store additional data needed to properly restore the broken appearance
+                        area.broken_hex_data[key] = {
+                            'cracks': hex_obj.cracks,
+                            'broken_surface': hex_obj.broken_surface,
+                            'ice_fragments': hex_obj.ice_fragments if hasattr(hex_obj, 'ice_fragments') else None
+                        }
         
         # Save enemy count
         area.enemy_count = len(self.enemies)
@@ -1232,15 +1253,10 @@ class Game:
                     if area.hex_colors[x][y]:
                         current_hex.color = area.hex_colors[x][y]
                     
-                    # Handle different hex states - just set the state without recreating visuals
-                    # The visual state will be restored from the existing sprites when drawn
-                    if saved_state in [HexState.CRACKED, HexState.BROKEN]:
-                        # Just set the state directly without creating new cracks
-                        # This avoids duplicate cracks
-                        current_hex.state = saved_state
-                        
+                    # Handle different hex states
+                    if saved_state == HexState.CRACKED:
                         # Only create cracks if none exist yet
-                        if len(current_hex.cracks) == 0 and saved_state == HexState.CRACKED:
+                        if len(current_hex.cracks) == 0:
                             # Add a few simple cracks
                             edge_points = current_hex.edge_points
                             # Add 3-5 random cracks
@@ -1253,10 +1269,31 @@ class Game:
                             # Add some secondary cracks
                             current_hex.add_secondary_cracks()
                         
-                        # For broken hexes, create ice fragments if needed
-                        if saved_state == HexState.BROKEN and not current_hex.ice_fragments:
-                            if hasattr(current_hex, '_find_ice_fragments'):
-                                current_hex._find_ice_fragments()
+                        # Set state to CRACKED
+                        current_hex.state = HexState.CRACKED
+                    
+                    elif saved_state == HexState.BROKEN:
+                        # For broken hexes, restore the complete saved data
+                        key = (x, y)
+                        if key in area.broken_hex_data:
+                            hex_data = area.broken_hex_data[key]
+                            
+                            # Restore cracks
+                            current_hex.cracks = hex_data['cracks']
+                            
+                            # Restore broken surface
+                            current_hex.broken_surface = hex_data['broken_surface']
+                            
+                            # Restore ice fragments if available
+                            if hex_data['ice_fragments']:
+                                current_hex.ice_fragments = hex_data['ice_fragments']
+                            
+                            # Restore fragment sprites if available
+                            if key in area.hex_sprite_groups:
+                                current_hex.fragment_sprites = area.hex_sprite_groups[key]
+                        
+                        # Set state to BROKEN after restoring all data
+                        current_hex.state = HexState.BROKEN
                     else:
                         # For other states, just set the state directly
                         current_hex.state = saved_state
@@ -1295,6 +1332,11 @@ class Game:
             enemy.kill()  # Remove from all sprite groups
         self.enemies = []
         self.enemy_sprites.empty()
+        
+        # Clear all ice fragment sprites from all sprite groups
+        for sprite in list(self.all_sprites):
+            if hasattr(sprite, '__class__') and sprite.__class__.__name__ == 'IceFragment':
+                sprite.kill()
         
         area = self.areas[self.supergrid_position[0]][self.supergrid_position[1]]
         if area.generated:
