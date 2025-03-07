@@ -1,5 +1,5 @@
 """Main game class for the ice breaking game."""
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Dict
 import os
 import tkinter as tk
 import pygame
@@ -20,6 +20,22 @@ from ..config import settings
 # Add a test logging statement to verify logging is working
 logging.info("Logging test: Game started")
 
+
+class Area:
+    """Stores the state of a 21x15 area when it's not active."""
+    
+    def __init__(self):
+        # Store hex states and colors
+        self.hex_states = [[None for _ in range(settings.hex_grid.GRID_HEIGHT)] 
+                          for _ in range(settings.hex_grid.GRID_WIDTH)]
+        self.hex_colors = [[None for _ in range(settings.hex_grid.GRID_HEIGHT)] 
+                          for _ in range(settings.hex_grid.GRID_WIDTH)]
+        
+        # Just store enemy count, not their positions
+        self.enemy_count = 0
+        
+        # Track if this area has been generated yet
+        self.generated = False
 
 class GameRestartHandler(FileSystemEventHandler):
     """File system event handler for game auto-restart."""
@@ -76,6 +92,12 @@ class Game:
         
         # Track keyboard state
         self.shift_pressed = False  # Track if shift is being pressed
+        
+        # Initialize supergrid
+        self.supergrid_size = 15
+        self.supergrid_position = [7, 7]  # Start in middle of supergrid
+        self.areas = [[Area() for _ in range(self.supergrid_size)] 
+                     for _ in range(self.supergrid_size)]
         
         # Initialize world size with default values
         self.world_width = 0
@@ -491,6 +513,14 @@ class Game:
                             running = False
                         elif event.key in (pygame.K_LSHIFT, pygame.K_RSHIFT):
                             self.shift_pressed = True
+                        elif event.key == pygame.K_LEFT:
+                            self.navigate_area(-1, 0)
+                        elif event.key == pygame.K_RIGHT:
+                            self.navigate_area(1, 0)
+                        elif event.key == pygame.K_UP:
+                            self.navigate_area(0, -1)
+                        elif event.key == pygame.K_DOWN:
+                            self.navigate_area(0, 1)
                     elif event.type == pygame.KEYUP:
                         if event.key in (pygame.K_LSHIFT, pygame.K_RSHIFT):
                             self.shift_pressed = False
@@ -889,6 +919,11 @@ class Game:
         self.screen.fill((0, 0, 0))  # Black background
         self.screen.blit(draw_surface, (shake_offset_x, shake_offset_y))
         
+        # Draw supergrid position indicator
+        pos_text = f"Area: {self.supergrid_position[0]},{self.supergrid_position[1]}"
+        pos_surface = settings.display.font.render(pos_text, True, (255, 255, 255))
+        self.screen.blit(pos_surface, (10, 10))
+        
         # Draw debug info if enabled
         if self.debug_mode:
             self._draw_debug_info()
@@ -1161,5 +1196,88 @@ class Game:
                 return True
                 
         return False
+
+    def save_current_area(self):
+        """Save the current screen state to the current area."""
+        area = self.areas[self.supergrid_position[0]][self.supergrid_position[1]]
+        area.generated = True
+        
+        # Save hex states and colors
+        for x in range(len(self.hexes)):
+            for y in range(len(self.hexes[x])):
+                if self.hexes[x][y]:
+                    area.hex_states[x][y] = self.hexes[x][y].state
+                    area.hex_colors[x][y] = self.hexes[x][y].color
+        
+        # Save enemy count
+        area.enemy_count = len(self.enemies)
+
+    def _restore_area(self):
+        """Restore the current area state."""
+        area = self.areas[self.supergrid_position[0]][self.supergrid_position[1]]
+        
+        # Only restore if the area has been generated before
+        if not area.generated:
+            return
+        
+        # Restore hex states and colors
+        for x in range(len(self.hexes)):
+            for y in range(len(self.hexes[x])):
+                if self.hexes[x][y] and area.hex_states[x][y] is not None:
+                    self.hexes[x][y].state = area.hex_states[x][y]
+                    if area.hex_colors[x][y]:
+                        self.hexes[x][y].color = area.hex_colors[x][y]
+        
+        # Clear current enemies
+        self.enemies = []
+        self.enemy_sprites.empty()
+        
+        # For now, we don't restore enemy positions, just log the count
+        logging.info(f"Area has {area.enemy_count} enemies (not spawning them for now)")
+
+    def navigate_area(self, dx, dy):
+        """Navigate to a different area in the supergrid.
+        
+        Args:
+            dx: Change in x position (-1, 0, 1)
+            dy: Change in y position (-1, 0, 1)
+        """
+        # Save current area state
+        self.save_current_area()
+        
+        # Update supergrid position, ensuring we stay within bounds
+        new_x = max(0, min(self.supergrid_size - 1, self.supergrid_position[0] + dx))
+        new_y = max(0, min(self.supergrid_size - 1, self.supergrid_position[1] + dy))
+        
+        # If position hasn't changed, we're at the edge of the world
+        if new_x == self.supergrid_position[0] and new_y == self.supergrid_position[1]:
+            return False
+        
+        # Update position
+        self.supergrid_position[0] = new_x
+        self.supergrid_position[1] = new_y
+        
+        # Clear current enemies - explicitly remove from all sprite groups
+        for enemy in self.enemies:
+            enemy.kill()  # Remove from all sprite groups
+        self.enemies = []
+        self.enemy_sprites.empty()
+        
+        area = self.areas[self.supergrid_position[0]][self.supergrid_position[1]]
+        if area.generated:
+            # Restore existing area
+            self._restore_area()
+        else:
+            # Generate new area with existing code
+            self._init_hex_grid()
+        
+        # Reset player position
+        if self.player:
+            self.player_sprite.empty()
+            self.all_sprites.remove(self.player)
+        self.player = self._init_player()
+        
+        logging.info(f"Navigated to supergrid position: {self.supergrid_position}")
+        return True
 
 
