@@ -107,6 +107,9 @@ class Game:
         # Track keyboard state
         self.shift_pressed = False  # Track if shift is being pressed
         
+        # Message display state
+        self.is_showing_message = False
+        
         # Initialize supergrid
         self.supergrid_size = worldgen.SUPERGRID_SIZE
         self.supergrid_position = [7, 7]  # Start in middle of supergrid
@@ -547,6 +550,9 @@ class Game:
     
     def run(self) -> None:
         """Run the main game loop."""
+        # Display introduction screen before starting the game
+        self.show_introduction_screen()
+        
         try:
             running = True
             
@@ -556,12 +562,6 @@ class Game:
                 for event in pygame.event.get():
                     if event.type == pygame.QUIT:
                         running = False
-                    elif event.type == pygame.USEREVENT:
-                        # Handle delayed game over
-                        if self.player and hasattr(self.player, 'pending_game_over') and self.player.pending_game_over:
-                            self.player.pending_game_over = False
-                            pygame.time.set_timer(pygame.USEREVENT, 0)  # Cancel the timer
-                            self.player._pending_game_over_callback()  # Call the original callback
                     elif event.type == pygame.MOUSEBUTTONDOWN:
                         if event.button == 1:  # Left click
                             self._handle_click(event.pos, current_time)
@@ -790,6 +790,11 @@ class Game:
         # Convert pixel coordinates to hex coordinates
         clicked_hex = self.pixel_to_hex(pos[0], pos[1])
         if not clicked_hex:
+            return
+            
+        # Check if player was clicked
+        if self.player and clicked_hex == self.player.current_hex:
+            self.display_message("Hello, world!")
             return
             
         # Debug: Add wolf on right click
@@ -1443,5 +1448,218 @@ class Game:
         
         logging.info(f"Navigated to supergrid position: {self.supergrid_position}")
         return True
+
+    def display_message(self, message: str) -> None:
+        """Displays a message in a white box with drop shadow until user clicks.
+        
+        Args:
+            message: The message to display
+        """
+        # Setup
+        screen_width, screen_height = self.screen.get_size()
+        clock = pygame.time.Clock()
+        font = pygame.font.SysFont(None, 30)
+        
+        # Calculate box dimensions
+        padding = 40
+        wrapped_text = textwrap.wrap(message, width=40)  # Wrap text to fit nicely
+        box_width = min(600, screen_width - 100)  # Max width or screen width minus margin
+        line_height = 35
+        text_height = len(wrapped_text) * line_height
+        box_height = text_height + padding * 2
+        
+        # Default position in the center of the screen
+        box_x = (screen_width - box_width) // 2
+        box_y = (screen_height - box_height) // 2
+        
+        # Adjust position to avoid player
+        if self.player:
+            # Get player's screen position
+            player_x, player_y = self.player.position
+            
+            # Define the player's area (add some margin)
+            player_radius = 60  # Approximate space the player takes up
+            player_area = pygame.Rect(
+                player_x - player_radius,
+                player_y - player_radius,
+                player_radius * 2,
+                player_radius * 2
+            )
+            
+            # Define the message box area
+            message_box = pygame.Rect(box_x, box_y, box_width, box_height)
+            
+            # Check if the message box overlaps with the player
+            if message_box.colliderect(player_area):
+                # Determine which quadrant the player is in and position the box in the opposite quadrant
+                if player_x < screen_width // 2:
+                    # Player is on the left side, move box to right
+                    box_x = screen_width - box_width - 50
+                else:
+                    # Player is on the right side, move box to left
+                    box_x = 50
+                    
+                if player_y < screen_height // 2:
+                    # Player is in the top half, move box to bottom
+                    box_y = screen_height - box_height - 50
+                else:
+                    # Player is in the bottom half, move box to top
+                    box_y = 50
+        
+        # Animation parameters
+        fade_duration = 500  # ms
+        start_time = pygame.time.get_ticks()
+        
+        # Take a screenshot of the current game state to use as background
+        # This prevents flickering by avoiding continuous redraws
+        background = self.screen.copy()
+        
+        # Save the current game state
+        self.is_showing_message = True
+        
+        # Message loop
+        while self.is_showing_message:
+            current_time = pygame.time.get_ticks()
+            elapsed = current_time - start_time
+            alpha = min(255, int(255 * (elapsed / fade_duration)))  # Fade in effect
+            
+            # Check for exit events
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    pygame.quit()
+                    sys.exit()
+                if event.type == pygame.MOUSEBUTTONDOWN and elapsed > fade_duration:
+                    self.is_showing_message = False
+                    break
+                if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+                    self.is_showing_message = False
+                    break
+            
+            # Draw the static background instead of redrawing the game
+            self.screen.blit(background, (0, 0))
+            
+            # Draw drop shadow
+            shadow_offset = 8
+            shadow_surface = pygame.Surface((box_width, box_height))
+            shadow_surface.fill((50, 50, 50))
+            shadow_surface.set_alpha(min(128, alpha // 2))
+            self.screen.blit(shadow_surface, (box_x + shadow_offset, box_y + shadow_offset))
+            
+            # Draw white box
+            box_surface = pygame.Surface((box_width, box_height))
+            box_surface.fill((255, 255, 255))
+            box_surface.set_alpha(alpha)
+            self.screen.blit(box_surface, (box_x, box_y))
+            
+            # Draw text
+            if alpha > 128:  # Only start drawing text once the box is somewhat visible
+                for i, line in enumerate(wrapped_text):
+                    text_surface = font.render(line, True, (0, 0, 0))
+                    text_alpha = min(255, int(510 * (elapsed / fade_duration)) - 255)  # Text fades in after box
+                    text_surface.set_alpha(text_alpha)
+                    text_rect = text_surface.get_rect(
+                        center=(box_x + box_width // 2, 
+                                box_y + padding + i * line_height + line_height // 2)
+                    )
+                    self.screen.blit(text_surface, text_rect)
+            
+            pygame.display.flip()
+            clock.tick(60)
+
+    def show_introduction_screen(self) -> None:
+        """Show an introduction screen with game instructions."""
+        # Setup
+        screen_width, screen_height = self.screen.get_size()
+        clock = pygame.time.Clock()
+        font_title = pygame.font.SysFont(None, 36, italic=True)
+        font_body = pygame.font.SysFont(None, 28)
+        
+        # Introduction text
+        intro_text = [
+            "The ice is fragile. The water is deathly cold.",
+            "",
+            "MOVE one hex in any direction. This is safe.",
+            "ATTACK an adjacent enemy. This will only push them back.",
+            "JUMP two hexes in any direction. This will damage the ice you jump from and land on.",
+            "STOMP on your own hex to damage it and everything around it. You cannot stomp cracked ice.",
+            "SLIDE exactly three squares on uncracked ice and knock back enemies.",
+            "",
+            "When on land you can only MOVE and ATTACK. There is no difference in the land terrains.",
+            "",
+            "RIGHT-CLICK to show your available moves.",
+            "",
+            "Seven screens from the start is safety.",
+            "",
+            "You are being hunted."
+        ]
+        
+        # Animation parameters
+        fade_duration = 700  # ms for text fade in
+        start_time = pygame.time.get_ticks()
+        
+        # White background that's already visible
+        self.screen.fill((255, 255, 255))
+        pygame.display.flip()
+        
+        # Wait for user click
+        waiting = True
+        done_fading = False
+        
+        while waiting:
+            current_time = pygame.time.get_ticks()
+            elapsed = current_time - start_time
+            
+            # Calculate fade-in for text
+            fade_progress = min(1.0, elapsed / fade_duration)
+            text_alpha = int(255 * fade_progress)
+            
+            # Draw white background
+            self.screen.fill((255, 255, 255))
+            
+            # Draw text with fade-in effect
+            y_offset = 150  # Starting position from top
+            
+            # Draw title (first line) with different formatting
+            title_line = intro_text[0]
+            title_surface = font_title.render(title_line, True, (0, 0, 0))
+            title_surface.set_alpha(text_alpha)
+            title_rect = title_surface.get_rect(center=(screen_width // 2, y_offset))
+            self.screen.blit(title_surface, title_rect)
+            y_offset += 60  # More space after title
+            
+            # Draw remaining lines
+            for i, line in enumerate(intro_text[1:]):
+                if line:  # Skip empty lines in rendering but add space
+                    text_surface = font_body.render(line, True, (0, 0, 0))
+                    text_surface.set_alpha(text_alpha)
+                    text_rect = text_surface.get_rect(center=(screen_width // 2, y_offset))
+                    self.screen.blit(text_surface, text_rect)
+                y_offset += 30  # Standard line spacing
+            
+            # Once we've finished fading in, show a prompt to continue
+            if fade_progress >= 1.0:
+                done_fading = True
+                continue_text = font_body.render("Click anywhere to continue...", True, (100, 100, 100))
+                continue_rect = continue_text.get_rect(center=(screen_width // 2, screen_height - 100))
+                self.screen.blit(continue_text, continue_rect)
+            
+            # Check for events
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    pygame.quit()
+                    sys.exit()
+                if event.type == pygame.MOUSEBUTTONDOWN and done_fading:
+                    waiting = False
+                    break
+                if event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_ESCAPE:
+                        pygame.quit()
+                        sys.exit()
+                    elif done_fading:
+                        waiting = False
+                        break
+            
+            pygame.display.flip()
+            clock.tick(60)
 
 
