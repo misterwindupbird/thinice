@@ -802,7 +802,34 @@ class Game:
             
         # Check if player was clicked
         if self.player and clicked_hex == self.player.current_hex:
-            self.display_message("Hello, world!")
+            # Perform STOMP action instead of just displaying a message
+            if clicked_hex.state == HexState.SOLID:
+                # Create floating text for STOMP action
+                self.add_floating_text("STOMP!", self.player.current_hex.center, (255, 0, 0))
+
+                # Apply screen shake effect
+                self.start_screen_shake(current_time)
+
+                # Get all adjacent hexes for later processing
+                neighbors = self.get_hex_neighbors(clicked_hex)
+
+                # First, only crack the player's hex if it's SOLID
+                clicked_hex.crack([])  # Empty list since we don't need to check neighbors here
+                # Schedule the surrounding hexes to crack/break after a delay
+                self.schedule_surrounding_hex_effects(clicked_hex, neighbors, current_time)
+            elif clicked_hex.state == HexState.CRACKED:
+                # Create floating text for STOMP action
+                self.add_floating_text("STOMP!", self.player.current_hex.center, (255, 0, 0))
+                
+                # Apply screen shake effect
+                self.start_screen_shake(current_time)
+                
+                # Get all adjacent hexes for later processing
+                neighbors = self.get_hex_neighbors(clicked_hex)
+                
+                clicked_hex.break_ice()
+                # Schedule the surrounding hexes to crack/break after a delay
+                self.schedule_surrounding_hex_effects(clicked_hex, neighbors, current_time)
             return
             
         if self.game_state != GameState.PLAYER:
@@ -847,29 +874,6 @@ class Game:
         # Check if player is already moving
         if self.player.is_moving:
             return
-
-        # Check if clicked on player's hex (STOMP action)
-        if clicked_hex == self.player.current_hex and clicked_hex.state == HexState.SOLID:
-            # Create floating text for STOMP action - no "CRACK" text for STOMP
-            self.add_floating_text("STOMP!", self.player.current_hex.center, (255, 0, 0))
-
-            # Apply screen shake effect
-            self.start_screen_shake(current_time)
-
-            # Get all adjacent hexes for later processing
-            neighbors = self.get_hex_neighbors(clicked_hex)
-
-            # First, only crack the player's hex if it's SOLID
-            if clicked_hex.state == HexState.SOLID:
-                clicked_hex.crack([])  # Empty list since we don't need to check neighbors here
-                # Schedule the surrounding hexes to crack/break after a delay
-                self.schedule_surrounding_hex_effects(clicked_hex, neighbors, current_time)
-            elif clicked_hex.state == HexState.CRACKED:
-                clicked_hex.break_ice()
-                # Schedule the surrounding hexes to crack/break after a delay
-                self.schedule_surrounding_hex_effects(clicked_hex, neighbors, current_time)
-            return
-
 
         # Check for SPRINT action (3 hexes away in a straight line)
         sprint_targets = self.get_valid_sprint_targets(self.player.current_hex)
