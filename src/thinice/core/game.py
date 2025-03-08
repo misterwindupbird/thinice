@@ -1414,7 +1414,8 @@ class Game:
             self.enemy_sprites.empty()
 
         self.remove_health_restore()
-        self.add_health_restore(self.hexes[5][self.supergrid_position[1]+1])
+        health_hex = self.find_health_restore_placement()
+        self.add_health_restore(health_hex)
         logging.info(f'added health restore: {self.health_restore} -> {self.health_restore.current_hex}')
         
         # Don't spawn enemies automatically - just log the count
@@ -1427,6 +1428,31 @@ class Game:
         self.health_restore = None
         if hasattr(self, 'health_restore_sprite'):
             self.health_restore_sprite.empty()
+
+
+    def find_health_restore_placement(self) -> Hex:
+        # Start BFS to find the closest LAND hex
+        from collections import deque
+
+        center_x = settings.hex_grid.GRID_WIDTH // 2
+        center_y = settings.hex_grid.GRID_HEIGHT // 2
+        queue = deque([(center_x, center_y)])
+        visited = set(queue)
+
+        while queue:
+            x, y = queue.popleft()
+            current_hex = self.hexes[x][y]
+
+            if current_hex.state == HexState.LAND:
+                logging.info(f"Closest LAND hex found at ({x}, {y})")
+                return current_hex
+
+            for neighbor in self.get_hex_neighbors(current_hex):
+                nx, ny = neighbor.grid_x, neighbor.grid_y
+                if (nx, ny) not in visited:
+                    visited.add((nx, ny))
+                    queue.append((nx, ny))
+
 
     def navigate_area(self, dx, dy):
         """Navigate to a different area in the supergrid.
