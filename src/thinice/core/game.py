@@ -46,6 +46,7 @@ class Area:
         
         # Track if this area has been generated yet
         self.generated = False
+        self.has_health_restore = True
 
 # Import WorldGenerator here, after Area is defined
 from .world_generator import WorldGenerator
@@ -1414,9 +1415,14 @@ class Game:
             self.enemy_sprites.empty()
 
         self.remove_health_restore()
-        health_hex = self.find_health_restore_placement()
-        self.add_health_restore(health_hex)
-        logging.info(f'added health restore: {self.health_restore} -> {self.health_restore.current_hex}')
+        if area.has_health_restore:
+            area.has_health_restore = False
+            health_hex = self.find_health_restore_placement()
+            self.add_health_restore(health_hex)
+            logging.info(f'added health restore: {self.health_restore} -> {self.health_restore.current_hex}')
+        else:
+            logging.info(f'no health restore')
+
         
         # Don't spawn enemies automatically - just log the count
         if area.enemy_count > 0:
