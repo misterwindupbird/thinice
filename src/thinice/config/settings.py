@@ -19,6 +19,8 @@ logging.basicConfig(
 class GameSettings:
     SHIFT_CLICK_ACTION = "enemy"
     MAX_HEALTH = 3
+    MIN_PACK_DISTANCE = 8
+    MAX_PACK_SPREAD = 3
 
 @dataclass
 class DisplayConfig:

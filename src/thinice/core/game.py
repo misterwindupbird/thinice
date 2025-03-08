@@ -1,8 +1,9 @@
 """Main game class for the ice breaking game."""
-from typing import List, Optional, Tuple, Dict
+from typing import List, Optional, Tuple
 import os
 import tkinter as tk
 import pygame
+from scipy.stats import energy_distance
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 import sys
@@ -12,7 +13,6 @@ from enum import Enum, auto
 from pathlib import Path
 import textwrap
 
-from thinice.core.entity import Player
 from .animation_manager import AnimationManager
 from .hex import Hex
 from .hex_state import HexState
@@ -293,89 +293,6 @@ class Game:
         
         # Load the current area's data
         self._restore_area()
-
-    def game_over_screen(self) -> None:
-        """Smoothly fades to white over `fade_duration`, then fades in 'Game Over' over `text_fade_duration`."""
-        fade_duration = 2000  # Total fade time in milliseconds (3 seconds)
-        text_fade_duration = 500  # 'Game Over' fade-in time (0.5 seconds)
-
-        clock = pygame.time.Clock()
-        font = pygame.font.SysFont(None, 40, italic=True)
-        screen_width, screen_height = self.screen.get_size()
-
-        # **Randomly pick a Game Over message**
-        message = random.choice(game_over_messages)
-
-        # **Auto-wrap the message into multiple lines**
-        wrapped_text = textwrap.wrap(message, width=60)  # Adjust width for best fit
-
-        start_time = pygame.time.get_ticks()
-        self.start_screen_shake(pygame.time.get_ticks() / 1000.0, 0.3, 10)
-
-        # **Step 1: Fade to White with a Slower Start**
-        while True:
-            elapsed_time = pygame.time.get_ticks() - start_time - 1000
-            if elapsed_time <= 0:
-                clock.tick(60)
-                continue
-
-            fade_progress = min(1, elapsed_time / fade_duration)  # Scale between 0 and 1
-
-            # **Ease-in curve for smoother fade (slow start, faster finish)**
-            alpha = int(255 * (fade_progress ** 0.5))  # Square root curve
-
-            if fade_progress >= 1:
-                break  # Stop once fully white
-
-            # **Apply the fading white overlay**
-            fade_overlay = pygame.Surface((screen_width, screen_height))
-            fade_overlay.fill((255, 255, 255))
-            fade_overlay.set_alpha(alpha / 2)  # Set opacity
-            self.screen.blit(fade_overlay, (0, 0))
-
-            pygame.display.flip()
-            clock.tick(60)  # Maintain smooth animation
-
-        # **Step 2: Full White Screen Before Fading in 'Game Over'**
-        self.screen.fill((255, 255, 255))
-        pygame.display.flip()
-
-        # **Step 3: Smoothly Fade in 'Game Over' Over `text_fade_duration`**
-        start_time = pygame.time.get_ticks()
-
-        while True:
-            elapsed_time = pygame.time.get_ticks() - start_time
-            fade_progress = min(1, elapsed_time / text_fade_duration)
-
-            if fade_progress >= 1:
-                break  # Stop when fully faded in
-
-            self.screen.fill((255, 255, 255))
-
-            # **Render multi-line text with auto-wrap**
-            text_alpha = int(fade_progress * 255)
-            y_offset = screen_height // 2 - (len(wrapped_text) * 30)  # Center vertically
-
-            for i, line in enumerate(wrapped_text):
-                text_surface = font.render(line, True, (0, 0, 0))
-                text_surface.set_alpha(text_alpha)
-                text_rect = text_surface.get_rect(center=(screen_width // 2, y_offset + i * 50))
-                self.screen.blit(text_surface, text_rect)
-
-            pygame.display.flip()
-            clock.tick(60)
-
-        # **Step 4: Wait for Mouse Click to Restart**
-        waiting = True
-        while waiting:
-            for event in pygame.event.get():
-                if event.type == pygame.QUIT:
-                    pygame.quit()
-                    sys.exit()
-                if event.type == pygame.MOUSEBUTTONDOWN:
-                    waiting = False  # Exit loop and restart game
-        pygame.quit()
-        sys.exit()
 
     def _init_player(self, initial_hex: Hex | None=None) -> Player | None:
         """Initialize the player entity on a random solid hex.
@@ -1405,11 +1322,54 @@ class Game:
             logging.info(f'added health restore: {self.health_restore} -> {self.health_restore.current_hex}')
         else:
             logging.info(f'no health restore')
-
         
         # Don't spawn enemies automatically - just log the count
         if area.enemy_count > 0:
             logging.info(f"Area has {area.enemy_count} enemies (not spawning them automatically)")
+
+
+    def spawn_enemies(self):
+        # add some enemies
+        enemy_positions = set()
+        enemies_to_spawn = 6 # area.enemy_count if area.enemy_count else 6
+        while enemies_to_spawn > 0:
+            pack_size = min(random.randint(2, 6), enemies_to_spawn)
+            pack_positions = []
+
+            # find a valid starting position
+            while True:
+                x = random.randint(0, len(self.hexes) - 1)
+                y = random.randint(0, len(self.hexes[0]) - 1)
+                start_hex = self.hexes[x][y]
+                if (
+                        start_hex
+                        and start_hex.state != HexState.BROKEN  # Can't spawn on broken ice
+                        and self.hex_distance(self.player.current_hex, start_hex) >= game_settings.MIN_PACK_DISTANCE
+                        and start_hex not in enemy_positions
+                ):
+                    pack_positions.append(start_hex)
+                    break
+
+                # Spread remaining pack members in 1-3 hex range
+            for _ in range(pack_size - 1):
+                valid_spots = []
+                for dist in range(1, game_settings.MAX_PACK_SPREAD + 1):
+                    valid_spots.extend(
+                        [vhex for vhex in self.get_hexes_at_distance(pack_positions[0], dist)
+                         if vhex.state != HexState.BROKEN and (vhex.grid_x, vhex.grid_y) not in enemy_positions]
+                    )
+
+                if valid_spots:
+                    pack_positions.append(random.choice(valid_spots))
+
+            # Create and place enemies
+            for phex in pack_positions:
+                self.add_enemy(phex)
+
+            enemies_to_spawn -= pack_size
+            enemy_positions.update(pack_positions)
+
+        logging.info(f"Spawned enemies: {len(self.enemies)}")
 
     def remove_health_restore(self):
         if self.health_restore and hasattr(self, 'all_sprites'):
@@ -1525,6 +1485,9 @@ class Game:
 
         logging.info(f"Navigated to supergrid position: {self.supergrid_position}")
         logging.debug(f"Positioned player at {self.player.current_hex}")
+
+        self.spawn_enemies()
+
         return True
 
     def display_message(self, message: str) -> None:
@@ -1762,6 +1725,89 @@ class Game:
             
             pygame.display.flip()
             clock.tick(60)
+
+    def game_over_screen(self) -> None:
+        """Smoothly fades to white over `fade_duration`, then fades in 'Game Over' over `text_fade_duration`."""
+        fade_duration = 2000  # Total fade time in milliseconds (3 seconds)
+        text_fade_duration = 500  # 'Game Over' fade-in time (0.5 seconds)
+
+        clock = pygame.time.Clock()
+        font = pygame.font.SysFont(None, 40, italic=True)
+        screen_width, screen_height = self.screen.get_size()
+
+        # **Randomly pick a Game Over message**
+        message = random.choice(game_over_messages)
+
+        # **Auto-wrap the message into multiple lines**
+        wrapped_text = textwrap.wrap(message, width=60)  # Adjust width for best fit
+
+        start_time = pygame.time.get_ticks()
+        self.start_screen_shake(pygame.time.get_ticks() / 1000.0, 0.3, 10)
+
+        # **Step 1: Fade to White with a Slower Start**
+        while True:
+            elapsed_time = pygame.time.get_ticks() - start_time - 1000
+            if elapsed_time <= 0:
+                clock.tick(60)
+                continue
+
+            fade_progress = min(1, elapsed_time / fade_duration)  # Scale between 0 and 1
+
+            # **Ease-in curve for smoother fade (slow start, faster finish)**
+            alpha = int(255 * (fade_progress ** 0.5))  # Square root curve
+
+            if fade_progress >= 1:
+                break  # Stop once fully white
+
+            # **Apply the fading white overlay**
+            fade_overlay = pygame.Surface((screen_width, screen_height))
+            fade_overlay.fill((255, 255, 255))
+            fade_overlay.set_alpha(alpha / 2)  # Set opacity
+            self.screen.blit(fade_overlay, (0, 0))
+
+            pygame.display.flip()
+            clock.tick(60)  # Maintain smooth animation
+
+        # **Step 2: Full White Screen Before Fading in 'Game Over'**
+        self.screen.fill((255, 255, 255))
+        pygame.display.flip()
+
+        # **Step 3: Smoothly Fade in 'Game Over' Over `text_fade_duration`**
+        start_time = pygame.time.get_ticks()
+
+        while True:
+            elapsed_time = pygame.time.get_ticks() - start_time
+            fade_progress = min(1, elapsed_time / text_fade_duration)
+
+            if fade_progress >= 1:
+                break  # Stop when fully faded in
+
+            self.screen.fill((255, 255, 255))
+
+            # **Render multi-line text with auto-wrap**
+            text_alpha = int(fade_progress * 255)
+            y_offset = screen_height // 2 - (len(wrapped_text) * 30)  # Center vertically
+
+            for i, line in enumerate(wrapped_text):
+                text_surface = font.render(line, True, (0, 0, 0))
+                text_surface.set_alpha(text_alpha)
+                text_rect = text_surface.get_rect(center=(screen_width // 2, y_offset + i * 50))
+                self.screen.blit(text_surface, text_rect)
+
+            pygame.display.flip()
+            clock.tick(60)
+
+        # **Step 4: Wait for Mouse Click to Restart**
+        waiting = True
+        while waiting:
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    pygame.quit()
+                    sys.exit()
+                if event.type == pygame.MOUSEBUTTONDOWN:
+                    waiting = False  # Exit loop and restart game
+        pygame.quit()
+        sys.exit()
 
     def _draw_move_overlay(self, surface: pygame.Surface) -> None:
         """Draw the move overlay showing available actions.

@@ -8,7 +8,7 @@ from .hex_state import HexState
 
 def a_star(start_hex: Hex,
            target_hex: Hex,
-           valid_states: frozenset[HexState] = frozenset({HexState.SOLID, HexState.CRACKED})) -> Optional[List[Hex]]:
+           valid_states: frozenset[HexState] = frozenset({HexState.SOLID, HexState.CRACKED, HexState.LAND})) -> Optional[List[Hex]]:
     """Find the shortest path between two hexes using A* algorithm.
 
     Args:
