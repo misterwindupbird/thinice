@@ -18,6 +18,7 @@ logging.basicConfig(
 @dataclass
 class GameSettings:
     SHIFT_CLICK_ACTION = "enemy"
+    MAX_HEALTH = 3
 
 @dataclass
 class DisplayConfig:
@@ -88,6 +89,19 @@ class WorldGenerationConfig:
     LACUNARITY = 2.0
     SEED = 32
     ICE_PERCENT = 75
+
+game_over_messages = [
+    "You collapse into the snow, breath steaming. The last thing you see is not teeth, but eyes—calculating, expectant. They were always waiting for you.",
+    "The ice shatters beneath you, but you do not fall. A dozen hungry mouths close in, and you finally understand: these were never wolves.",
+    "They circle in silence, watching. Not hunger, not instinct—recognition. You were never meant to leave this place.",
+    "As your blood stains the ice, your last thought is not fear, but memory. You've done this before.",
+    "The beasts hesitate, just for a moment. Not mercy—doubt. Then the snow swallows your screams.",
+    "You fought. You ran. You broke the ice. It was never enough. It was never going to be enough.",
+    "The storm howls. The ice groans. The shapes in the dark tilt their heads, listening. You had almost made it.",
+    "You die in the snow, the cold stealing your last breath. But the ice does not keep the dead for long.",
+    "They move in perfect unison, too perfect. You should have realized sooner. You should have remembered.",
+    "Your vision fades as the pack descends. And in the final moment, you see it—the flicker of something familiar beneath their skins."
+]
 
 # Create global instances
 game_settings = GameSettings()

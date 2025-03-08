@@ -79,9 +79,8 @@ class WorldGenerator:
                     persistence=worldgen.PERSISTENCE,
                     lacunarity=worldgen.LACUNARITY,
                     repeatx=self.world_hex_width,  # Ensure seamless tiling
-                    repeaty=self.world_hex_height,
-                    base=worldgen.SEED
-               )
+                    repeaty=self.world_hex_height
+                )
 
         # Normalize height values to 0-1
         min_val, max_val = self.world_hex_heightmap.min(), self.world_hex_heightmap.max()

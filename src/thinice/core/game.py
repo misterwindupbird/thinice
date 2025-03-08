@@ -9,6 +9,8 @@ import sys
 import random
 import logging
 from enum import Enum, auto
+from pathlib import Path
+import textwrap
 
 from .animation_manager import AnimationManager
 from .hex import Hex
@@ -16,11 +18,12 @@ from .hex_state import HexState
 from .entity import Player, Wolf
 from .floating_text import FloatingText
 from ..config import settings
-from ..config.settings import worldgen
+from ..config.settings import worldgen, game_settings, game_over_messages
 
 # Add a test logging statement to verify logging is working
 logging.info("Logging test: Game started")
 
+HEART_CACHE = dict()
 
 class Area:
     """Stores the state of a 21x15 area when it's not active."""
@@ -235,7 +238,7 @@ class Game:
         
         # Set up display
         self.screen = pygame.display.set_mode((settings.display.WINDOW_WIDTH, settings.display.WINDOW_HEIGHT))
-        pygame.display.set_caption("Hex Grid")
+        pygame.display.set_caption("On Thin Ice")
         settings.display.font = pygame.font.SysFont(settings.display.FONT_NAME, settings.display.FONT_SIZE)
     
     def _init_hex_grid(self) -> None:
@@ -284,6 +287,90 @@ class Game:
         Returns:
             The player entity or None if no valid position found
         """
+
+        def game_over_screen():
+            """Smoothly fades to white over `fade_duration`, then fades in 'Game Over' over `text_fade_duration`."""
+            fade_duration = 2000  # Total fade time in milliseconds (3 seconds)
+            text_fade_duration = 500  # 'Game Over' fade-in time (0.5 seconds)
+
+            clock = pygame.time.Clock()
+            font = pygame.font.SysFont(None, 40, italic=True)
+            screen_width, screen_height = self.screen.get_size()
+
+            # **Randomly pick a Game Over message**
+            message = random.choice(game_over_messages)
+
+            # **Auto-wrap the message into multiple lines**
+            wrapped_text = textwrap.wrap(message, width=40)  # Adjust width for best fit
+
+            start_time = pygame.time.get_ticks()
+            self.start_screen_shake(pygame.time.get_ticks() / 1000.0, 1.0)
+
+            # **Step 1: Fade to White with a Slower Start**
+            while True:
+                elapsed_time = pygame.time.get_ticks() - start_time - 1000
+                if elapsed_time <= 0:
+                    clock.tick(60)
+                    continue
+
+                fade_progress = min(1, elapsed_time / fade_duration)  # Scale between 0 and 1
+
+                # **Ease-in curve for smoother fade (slow start, faster finish)**
+                alpha = int(255 * (fade_progress ** 0.5))  # Square root curve
+
+                if fade_progress >= 1:
+                    break  # Stop once fully white
+
+                # **Apply the fading white overlay**
+                fade_overlay = pygame.Surface((screen_width, screen_height))
+                fade_overlay.fill((255, 255, 255))
+                fade_overlay.set_alpha(alpha / 2)  # Set opacity
+                self.screen.blit(fade_overlay, (0, 0))
+
+                pygame.display.flip()
+                clock.tick(60)  # Maintain smooth animation
+
+            # **Step 2: Full White Screen Before Fading in 'Game Over'**
+            self.screen.fill((255, 255, 255))
+            pygame.display.flip()
+
+            # **Step 3: Smoothly Fade in 'Game Over' Over `text_fade_duration`**
+            start_time = pygame.time.get_ticks()
+
+            while True:
+                elapsed_time = pygame.time.get_ticks() - start_time
+                fade_progress = min(1, elapsed_time / text_fade_duration)
+
+                if fade_progress >= 1:
+                    break  # Stop when fully faded in
+
+                self.screen.fill((255, 255, 255))
+
+                # **Render multi-line text with auto-wrap**
+                text_alpha = int(fade_progress * 255)
+                y_offset = screen_height // 2 - (len(wrapped_text) * 30)  # Center vertically
+
+                for i, line in enumerate(wrapped_text):
+                    text_surface = font.render(line, True, (0, 0, 0))
+                    text_surface.set_alpha(text_alpha)
+                    text_rect = text_surface.get_rect(center=(screen_width // 2, y_offset + i * 50))
+                    self.screen.blit(text_surface, text_rect)
+
+                pygame.display.flip()
+                clock.tick(60)
+
+                # **Step 4: Wait for Mouse Click to Restart**
+            waiting = True
+            while waiting:
+                for event in pygame.event.get():
+                    if event.type == pygame.QUIT:
+                        pygame.quit()
+                        sys.exit()
+                    if event.type == pygame.MOUSEBUTTONDOWN:
+                        waiting = False  # Exit loop and restart game
+            pygame.quit()
+            sys.exit()
+
         # Find all solid hexes
         solid_hexes = []
         for row in self.hexes:
@@ -294,8 +381,8 @@ class Game:
         # Choose a random solid hex
         if solid_hexes:
             start_hex = random.choice(solid_hexes)
-            player = Player(start_hex, self.animation_manager)
-            
+            player = Player(start_hex, self.animation_manager, game_over_callback=game_over_screen)
+
             # Add player to sprite groups
             if hasattr(self, 'player_sprite'):
                 self.player_sprite.add(player)
@@ -315,7 +402,7 @@ class Game:
             if non_land_hexes:
                 hex = random.choice(non_land_hexes)
                 hex.state = HexState.SOLID  # Convert to SOLID
-                player = Player(hex, self.animation_manager)
+                player = Player(hex, self.animation_manager, game_over_callback=game_over_screen)
                 
                 # Add player to sprite groups
                 if hasattr(self, 'player_sprite'):
@@ -343,8 +430,7 @@ class Game:
                 return player
             
             logging.error("Could not create player - no valid hexes found!")
-            return None
-    
+
     def get_hex_neighbors(self, hex: Hex) -> List[Hex]:
         """Get list of neighboring hex tiles.
         
@@ -883,19 +969,40 @@ class Game:
         # Apply the draw surface to the screen with shake offset
         self.screen.fill((0, 0, 0))  # Black background
         self.screen.blit(draw_surface, (shake_offset_x, shake_offset_y))
-        
-        # Draw supergrid position indicator
-        pos_text = f"Area: {self.supergrid_position[0]},{self.supergrid_position[1]}"
-        pos_surface = settings.display.font.render(pos_text, True, (255, 255, 255))
-        self.screen.blit(pos_surface, (10, 10))
-        
+
+        self.draw_health()
+
         # Draw debug info if enabled
         if self.debug_mode:
             self._draw_debug_info()
         
         # Update the display
         pygame.display.flip()
-    
+
+    def draw_health(self, position=(10, 10), spacing=40):
+        """Draws player's health using heart icons.
+
+        Args:
+            screen (pygame.Surface): The game screen.
+            player (Player): The player object with `health` attribute.
+            position (tuple): (x, y) coordinates for the first heart.
+            spacing (int): Pixel spacing between hearts.
+        """
+        global HEART_CACHE
+        if len(HEART_CACHE) == 0:
+            # Global cache for heart images (preload for efficiency)
+            HEART_CACHE = {
+                "full": pygame.image.load(str(Path(__file__).parents[1] / "images/heart_full.png")).convert_alpha(),
+                "empty": pygame.image.load(str(Path(__file__).parents[1] / "images/heart_empty.png")).convert_alpha(),
+            }
+
+        x, y = position
+
+        for i in range(game_settings.MAX_HEALTH):
+            heart_img = HEART_CACHE["full"] if i < self.player.health else HEART_CACHE["empty"]
+            self.screen.blit(heart_img, (x + i * spacing, y))  # Draw heart with spacing
+
+
     def start_screen_shake(self, current_time: float, duration: float = 0.3, intensity: int = 5) -> None:
         """Start a screen shake effect.
         
@@ -1115,7 +1222,9 @@ class Game:
 
             # If player is adjacent, attack instead of moving
             if self.player and self.player.current_hex in self.get_hex_neighbors(enemy.current_hex):
-                self.add_floating_text("ATTACK", enemy.current_hex.center)
+                # self.add_floating_text("ATTACK", enemy.current_hex.center)
+                self.start_screen_shake(current_time=current_time, duration=.1)
+                self.player.take_damage()
                 continue
 
             # Find path to player

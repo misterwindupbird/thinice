@@ -10,7 +10,7 @@ import random
 from .animation_manager import AnimationManager
 from .hex import Hex
 from .hex_state import HexState
-from ..config.settings import hex_grid, display
+from ..config.settings import hex_grid, display, game_settings
 
 # We'll use a TYPE_CHECKING approach to avoid circular imports
 from typing import TYPE_CHECKING
@@ -338,7 +338,7 @@ class Entity(pygame.sprite.Sprite, ABC):
 class Player(Entity):
     """Player entity that can move between hex tiles."""
     
-    def __init__(self, start_hex, animation_manager: AnimationManager):
+    def __init__(self, start_hex, animation_manager: AnimationManager, game_over_callback: Callable[[], None]):
         """Initialize the player entity.
         
         Args:
@@ -346,6 +346,9 @@ class Player(Entity):
             animation_manager: The animation manager
         """
         super().__init__(start_hex, animation_manager, 'player_token.png')
+
+        self.health = game_settings.MAX_HEALTH -1
+        self.game_over_callback = game_over_callback
 
     def jump(self, target_hex, current_time):
         """Perform a jump to a target hex that is 2 steps away.
@@ -407,6 +410,12 @@ class Player(Entity):
         game_instance = self._get_game_instance()
         if game_instance:
             game_instance.add_floating_text("MOVE", self.current_hex.center, (255, 100, 100))
+
+    def take_damage(self):
+
+        self.health -= 1
+        if self.health <= 0:
+            self.game_over_callback()
 
 class Wolf(Entity):
     """Enemy wolf entity that can be pushed by the player."""
