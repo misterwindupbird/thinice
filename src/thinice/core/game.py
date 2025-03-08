@@ -18,7 +18,7 @@ from .hex_state import HexState
 from .entity import Player, Wolf, HealthRestore
 from .floating_text import FloatingText
 from ..config import settings
-from ..config.settings import worldgen, game_settings, game_over_messages
+from ..config.settings import worldgen, game_settings, game_over_messages, health_restore_messages
 
 # Add a test logging statement to verify logging is working
 logging.info("Logging test: Game started")
@@ -1198,7 +1198,15 @@ class Game:
             
         # Process any pending hex effects
         self.process_pending_hex_effects(current_time)
-        
+
+        if self.health_restore and self.player.current_hex == self.health_restore.current_hex:
+            logging.info(f"Health restore for {self.player.current_hex}. Restoring...")
+            if self.player.health < game_settings.MAX_HEALTH:
+                self.player.health += 1
+
+            self.remove_health_restore()
+            self.display_message(random.choice(health_restore_messages))
+
         # Handle state transitions
         if self.game_state == GameState.PLAYER:
             # Player's turn is complete, switch to enemy turn
@@ -1405,20 +1413,20 @@ class Game:
         if hasattr(self, 'enemy_sprites'):
             self.enemy_sprites.empty()
 
-
-        if self.health_restore and hasattr(self, 'all_sprites'):
-            self.all_sprites.remove(self.health_restore)
-
-        self.health_restore = None
-        if hasattr(self, 'health_restore_sprite'):
-            self.health_restore_sprite.empty()
-
+        self.remove_health_restore()
         self.add_health_restore(self.hexes[5][self.supergrid_position[1]+1])
         logging.info(f'added health restore: {self.health_restore} -> {self.health_restore.current_hex}')
         
         # Don't spawn enemies automatically - just log the count
         if area.enemy_count > 0:
             logging.info(f"Area has {area.enemy_count} enemies (not spawning them automatically)")
+
+    def remove_health_restore(self):
+        if self.health_restore and hasattr(self, 'all_sprites'):
+            self.all_sprites.remove(self.health_restore)
+        self.health_restore = None
+        if hasattr(self, 'health_restore_sprite'):
+            self.health_restore_sprite.empty()
 
     def navigate_area(self, dx, dy):
         """Navigate to a different area in the supergrid.
