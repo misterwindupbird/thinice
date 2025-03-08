@@ -171,6 +171,12 @@ class Game:
         pygame.font.init()
         self.font = pygame.font.SysFont('Arial', 14)
         
+        # Font for move overlay
+        self.overlay_font = pygame.font.SysFont('Arial', 16, bold=True)
+        
+        # Move overlay state
+        self.show_move_overlay = False
+        
         # Initialize clock for frame rate control
         self.clock = pygame.time.Clock()
         
@@ -564,7 +570,15 @@ class Game:
                         running = False
                     elif event.type == pygame.MOUSEBUTTONDOWN:
                         if event.button == 1:  # Left click
-                            self._handle_click(event.pos, current_time)
+                            # Dismiss the overlay if it's showing
+                            if self.show_move_overlay:
+                                self.show_move_overlay = False
+                            else:
+                                self._handle_click(event.pos, current_time)
+                        elif event.button == 3:  # Right click
+                            # Toggle move overlay on right click if in player turn
+                            if self.game_state == GameState.PLAYER and not self.animation_manager.blocking_animations > 0:
+                                self.show_move_overlay = not self.show_move_overlay
                     elif event.type == pygame.KEYDOWN:
                         if event.key == pygame.K_ESCAPE:
                             running = False
@@ -781,12 +795,6 @@ class Game:
         if self.animation_manager.blocking_animations > 0:
             return
             
-        # Don't handle clicks if player is stunned
-        if self.player and self.player.is_stunned(current_time):
-            # Optionally add a visual indicator or sound that the player is stunned
-            self.add_floating_text("STUNNED", self.player.position, (255, 0, 0))
-            return
-            
         # Convert pixel coordinates to hex coordinates
         clicked_hex = self.pixel_to_hex(pos[0], pos[1])
         if not clicked_hex:
@@ -797,12 +805,6 @@ class Game:
             self.display_message("Hello, world!")
             return
             
-        # Debug: Add wolf on right click
-        if pygame.mouse.get_pressed()[2]:  # Right mouse button
-            if clicked_hex.state == HexState.SOLID and not self._hex_has_entity(clicked_hex):
-                self.add_enemy(clicked_hex)
-                return
-
         if self.game_state != GameState.PLAYER:
             logging.debug(f'Invalid! Game state is {self.game_state}.')
             return
@@ -973,6 +975,10 @@ class Game:
             # Skip IceFragment sprites - they're drawn by their parent hex
             if not hasattr(sprite, '__class__') or sprite.__class__.__name__ != 'IceFragment':
                 sprite.draw(draw_surface, current_time)
+        
+        # Draw move overlay if enabled
+        if self.show_move_overlay and self.game_state == GameState.PLAYER and self.player:
+            self._draw_move_overlay(draw_surface)
         
         # Update and draw floating text animations
         active_texts = []
@@ -1555,7 +1561,7 @@ class Game:
             if alpha > 128:  # Only start drawing text once the box is somewhat visible
                 for i, line in enumerate(wrapped_text):
                     text_surface = font.render(line, True, (0, 0, 0))
-                    text_alpha = min(255, int(510 * (elapsed / fade_duration)) - 255)  # Text fades in after box
+                    text_alpha = min(255, int(510 * (elapsed / fade_duration)) - 255)
                     text_surface.set_alpha(text_alpha)
                     text_rect = text_surface.get_rect(
                         center=(box_x + box_width // 2, 
@@ -1661,5 +1667,151 @@ class Game:
             
             pygame.display.flip()
             clock.tick(60)
+
+    def _draw_move_overlay(self, surface: pygame.Surface) -> None:
+        """Draw the move overlay showing available actions.
+        
+        Args:
+            surface: Surface to draw on
+        """
+        if not self.player:
+            return
+            
+        player_hex = self.player.current_hex
+        neighbors = self.get_hex_neighbors(player_hex)
+        
+        # Draw "STOMP" on player's hex if it's not cracked
+        if player_hex.state == HexState.SOLID:
+            text = self.overlay_font.render("STOMP", True, (0, 100, 255))
+            text_rect = text.get_rect(center=player_hex.center)
+            surface.blit(text, text_rect)
+        
+        # Draw "MOVE" or "PUSH" on neighboring hexes
+        for hex in neighbors:
+            if hex.state not in [HexState.BROKEN, HexState.BREAKING]:
+                # Check if there's an enemy
+                has_enemy = False
+                for enemy in self.enemies:
+                    if enemy.current_hex == hex:
+                        has_enemy = True
+                        break
+                        
+                if has_enemy:
+                    text = self.overlay_font.render("PUSH", True, (0, 100, 255))
+                else:
+                    text = self.overlay_font.render("MOVE", True, (0, 100, 255))
+                    
+                text_rect = text.get_rect(center=hex.center)
+                surface.blit(text, text_rect)
+        
+        # Only show JUMP and SLIDE options if player is not on a LAND hex
+        if player_hex.state != HexState.LAND:
+            # Get hexes for jumping (2 hexes away)
+            # We'll use a similar approach to get_valid_jump_targets but with different filtering
+            potential_jump_targets = set()
+            for neighbor in neighbors:
+                neighbor_neighbors = self.get_hex_neighbors(neighbor)
+                for hex in neighbor_neighbors:
+                    # Only add if it's not the player's hex and not directly adjacent to player
+                    if hex != player_hex and hex not in neighbors:
+                        potential_jump_targets.add(hex)
+            
+            # Show JUMP for valid targets - ONLY SOLID hexes, not cracked or broken
+            for hex in potential_jump_targets:
+                # Can only jump to SOLID hexes
+                if hex.state == HexState.SOLID:
+                    # Check if there's an enemy
+                    has_enemy = False
+                    for enemy in self.enemies:
+                        if enemy.current_hex == hex:
+                            has_enemy = True
+                            break
+                    
+                    if not has_enemy:
+                        text = self.overlay_font.render("JUMP", True, (0, 100, 255))
+                        text_rect = text.get_rect(center=hex.center)
+                        surface.blit(text, text_rect)
+            
+            # Add SLIDE for hexes 3 steps away in each of the 6 directions
+            # Check each of the 6 directions from the player
+            for direction in range(6):
+                # Start at player's hex
+                current_hex = player_hex
+                path = [current_hex]
+                
+                # Move 3 times in the same direction
+                for step in range(3):
+                    next_hex = current_hex.get_neighbor(direction, self.hexes)
+                    if not next_hex:
+                        # Hit edge of grid
+                        break
+                    path.append(next_hex)
+                    current_hex = next_hex
+                
+                # Check if we have a valid path of 4 hexes (including start)
+                if len(path) != 4:
+                    continue
+                
+                target_hex = path[-1]
+                
+                # Check if all hexes in the path (except player's hex) are SOLID and have no enemies
+                path_valid = True
+                for i, hex in enumerate(path):
+                    # Skip player's hex - it can be cracked
+                    if i == 0:
+                        continue
+                    
+                    # All other hexes must be SOLID
+                    if hex.state != HexState.SOLID:
+                        path_valid = False
+                        break
+                        
+                    # Check if hex has an enemy
+                    for enemy in self.enemies:
+                        if enemy.current_hex == hex:
+                            path_valid = False
+                            break
+                    
+                    if not path_valid:
+                        break
+                
+                # If path is valid, show SLIDE or SLAM
+                if path_valid:
+                    # Check if there's an enemy in the next hex after the slide (4th hex)
+                    # or in one of its adjacent hexes
+                    will_slam = False
+                    
+                    # Check for the next hex in the same direction (4th hex)
+                    fourth_hex = target_hex.get_neighbor(direction, self.hexes)
+                    if fourth_hex:
+                        # Check if there's an enemy in the 4th hex
+                        for enemy in self.enemies:
+                            if enemy.current_hex == fourth_hex:
+                                will_slam = True
+                                break
+                                
+                        # If no enemy in the 4th hex, check adjacent hexes to the 4th hex
+                        if not will_slam:
+                            # Check the hexes adjacent to the direction we came from
+                            # These are direction-1, direction, direction+1
+                            for adj_dir in [(direction - 1) % 6, direction, (direction + 1) % 6]:
+                                adj_hex = target_hex.get_neighbor(adj_dir, self.hexes)
+                                if adj_hex:
+                                    for enemy in self.enemies:
+                                        if enemy.current_hex == adj_hex:
+                                            will_slam = True
+                                            break
+                                    
+                                    if will_slam:
+                                        break
+                    
+                    # Show SLAM or SLIDE based on whether there's an enemy to push
+                    if will_slam:
+                        text = self.overlay_font.render("SLAM", True, (0, 100, 255))
+                    else:
+                        text = self.overlay_font.render("SLIDE", True, (0, 100, 255))
+                        
+                    text_rect = text.get_rect(center=target_hex.center)
+                    surface.blit(text, text_rect)
 
 
