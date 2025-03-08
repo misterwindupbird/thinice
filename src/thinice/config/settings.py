@@ -36,7 +36,7 @@ class HexConfig:
     """Hex grid configuration."""
     RADIUS: int = 40
     GRID_WIDTH: int = 21
-    GRID_HEIGHT: int = 15
+    GRID_HEIGHT: int = 13
     LINE_COLOR: Tuple[int, int, int] = (240, 240, 245)
     TEXT_COLOR: Tuple[int, int, int] = (100, 120, 140)
     # ICE_BASE_COLOR: Tuple[int, int, int] = (245, 245, 250)
@@ -44,7 +44,7 @@ class HexConfig:
     TILES = {"low": "images/tiles/Desert.png",
              "mid": "images/tiles/SnowWaste.png",
              "high": "images/tiles/IcyConnifer.png",
-             "peak": "images/tiles/Connifer.png"}
+             "peak": "images/tiles/LowMountains.png"}
 
 
 @dataclass

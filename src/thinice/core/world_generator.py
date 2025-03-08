@@ -91,25 +91,115 @@ class WorldGenerator:
         threshold = np.percentile(self.world_hex_heightmap, worldgen.ICE_PERCENT)
         self.world_hex_heightmap -= threshold
 
+        # add some rivers
+        self._generate_world_river([(-1, 7), (0, 7), (1, 7), (2, 7)])
+        self._generate_world_river([(7, -1), (7, 0), (7, 1), (7, 2), (7, 3)])
+
+        # add craters for more interesting terrain with open areas in the middle
+        for x in range(worldgen.SUPERGRID_SIZE):
+            for y in range(worldgen.SUPERGRID_SIZE):
+                self._add_crater_to_area(x * hex_grid.GRID_WIDTH, y * hex_grid.GRID_HEIGHT)
+
         for x in range(self.world_hex_width):
             for y in range(self.world_hex_height):
                 if self.world_hex_heightmap[x][y] > 0:
                     self.world_hex_states[x][y] = HexState.LAND
                     self.world_hex_colors[x][y] = (0, 0, 0)
 
+    def _generate_world_river(self, start_path):
+        """Determine a continuous river path across multiple Areas."""
 
-    def _generate_world_border(self):
-        """Generate a 2-hex thick land border around the entire world."""
-        border_width = 2  # Width of the border in hexes
+        path = start_path
 
-        for x in range(self.world_hex_width):
-            for y in range(self.world_hex_height):
-                # Check if this hex is within the border
-                if (x < border_width or x >= self.world_hex_width - border_width or
-                    y < border_width or y >= self.world_hex_height - border_width):
-                    self.world_hex_states[x][y] = HexState.LAND
-                    self.world_hex_colors[x][y] = self._generate_land_color()
-    
+        while True:  # Let the river traverse ~6 Areas
+            next_area = self._get_next_river_area(path)
+            path.append(next_area)
+            if next_area[0] < 0 or next_area[0] >= worldgen.SUPERGRID_SIZE or next_area[1] < 0 or next_area[1] >= worldgen.SUPERGRID_SIZE:
+                break
+
+        logging.debug(f"Generated river path: {path}")
+
+        for i in range(1, len(path) - 2):
+            self._generate_river_for_area(path[i], path[i-1], path[i + 1])
+        return path
+
+    def _get_next_river_area(self, path):
+        """Choose a neighboring Area for the river to flow into."""
+
+        current_head = path[-1]
+        possible_moves = [(current_head[0]-1, current_head[1]),
+                          (current_head[0]+1, current_head[1]),
+                          (current_head[0], current_head[1]+1),
+                          (current_head[0], current_head[1]-1)]
+
+        # don't double back
+        possible_moves.remove(path[-2])
+        move = random.choice(possible_moves)
+        return move
+
+    def _generate_river_for_area(self, area, prev_area, next_area):
+        """Create a river segment in an Area that connects from prev_area to next_area."""
+
+        if prev_area is None or next_area is None:
+            return  # Skip if we don't have both entry & exit points
+
+        area_x, area_y = area
+        area_width = hex_grid.GRID_WIDTH
+        area_height = hex_grid.GRID_HEIGHT
+
+        # **Compute entry and exit points**
+        entry_x, entry_y = self._get_area_center(prev_area)
+        exit_x, exit_y = self._get_area_center(next_area)
+
+        # **Raise surrounding terrain** in the entire area before carving the river
+        for x in range(area_x * area_width, (area_x + 1) * area_width):
+            for y in range(area_y * area_height, (area_y + 1) * area_height):
+                self.world_hex_heightmap[x, y] += 0.2  # Elevate land in the river area
+
+        # **Carve a defined river path from entry to exit**
+        river_width = 4  # Fixed width at entry and exit
+
+        # Use Bresenham’s line algorithm to generate the core river path
+        river_path = self._bresenham_line(entry_x, entry_y, exit_x, exit_y)
+
+        # **Carve out the river, adding some width variation**
+        for x, y in river_path:
+            width_variation = random.randint(-1, 1)  # Make it a bit wider or narrower
+            for dx in range(-river_width // 2 + width_variation, river_width // 2 + width_variation):
+                if 0 <= x + dx < self.world_hex_width:
+                    self.world_hex_heightmap[x + dx, y] = -1  # Lower height for water
+
+    def _get_area_center(self, area):
+        """Returns the center hex coordinates for a given Area."""
+        if area is None:
+            return None
+        area_x, area_y = area
+        center_x = (area_x * hex_grid.GRID_WIDTH) + (hex_grid.GRID_WIDTH // 2)
+        center_y = (area_y * hex_grid.GRID_HEIGHT) + (hex_grid.GRID_HEIGHT // 2)
+        return center_x, center_y
+
+    def _bresenham_line(self, x0, y0, x1, y1):
+        """Bresenham's line algorithm to generate a smooth path from (x0, y0) to (x1, y1)."""
+        path = []
+        dx = abs(x1 - x0)
+        dy = abs(y1 - y0)
+        sx = 1 if x0 < x1 else -1
+        sy = 1 if y0 < y1 else -1
+        err = dx - dy
+
+        while x0 != x1 or y0 != y1:
+            path.append((x0, y0))
+            e2 = 2 * err
+            if e2 > -dy:
+                err -= dy
+                x0 += sx
+            if e2 < dx:
+                err += dx
+                y0 += sy
+
+        path.append((x1, y1))  # Ensure we include the final point
+        return path
+
     def _generate_area(self, grid_x, grid_y):
         """Generate an area with random land hexes based on coordinates.
         
@@ -119,6 +209,27 @@ class WorldGenerator:
         """
         # Mark area as generated
         self.areas[grid_x][grid_y].generated = True
+
+    def _add_crater_to_area(self, start_x, start_y):
+
+        crater_center_x = start_x + hex_grid.GRID_WIDTH // 2
+        crater_center_y = start_y + hex_grid.GRID_HEIGHT // 2 - 1
+        crater_radius = random.randint(4, 5)  # 8-10 hexes in diameter
+
+        for x in range(start_x, start_x + hex_grid.GRID_WIDTH):
+            for y in range(start_y, start_y + hex_grid.GRID_HEIGHT):
+                # Compute distance from the crater center
+                dx, dy = x - crater_center_x, y - crater_center_y
+                dist = (dx ** 2 + dy ** 2) ** 0.5  # Approximate circular distance
+
+                if dist < crater_radius:
+                    # **Lower height inside the crater**
+                    self.world_hex_heightmap[x, y] -= 0.4 * (1 - (dist / crater_radius))  # Smooth depression
+
+                elif dist < crater_radius + 2:
+                    # **Raise the terrain to form a crater rim**
+                    self.world_hex_heightmap[x, y] += 0.4 * ((dist - crater_radius) / 2)  # Raised outer ridge
+
 
     def _add_random_land_in_area(self, start_x, start_y, width, height, count):
         """Add random land hexes in a specific area region.
