@@ -121,6 +121,7 @@ health_restore_messages = [
     "A row of deep scratches in the frozen earth. Not claw marks. Not quite.",
 ]
 
+
 # Create global instances
 game_settings = GameSettings()
 display = DisplayConfig()

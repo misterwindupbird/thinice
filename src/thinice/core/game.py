@@ -294,98 +294,97 @@ class Game:
         # Load the current area's data
         self._restore_area()
 
+    def game_over_screen(self) -> None:
+        """Smoothly fades to white over `fade_duration`, then fades in 'Game Over' over `text_fade_duration`."""
+        fade_duration = 2000  # Total fade time in milliseconds (3 seconds)
+        text_fade_duration = 500  # 'Game Over' fade-in time (0.5 seconds)
+
+        clock = pygame.time.Clock()
+        font = pygame.font.SysFont(None, 40, italic=True)
+        screen_width, screen_height = self.screen.get_size()
+
+        # **Randomly pick a Game Over message**
+        message = random.choice(game_over_messages)
+
+        # **Auto-wrap the message into multiple lines**
+        wrapped_text = textwrap.wrap(message, width=60)  # Adjust width for best fit
+
+        start_time = pygame.time.get_ticks()
+        self.start_screen_shake(pygame.time.get_ticks() / 1000.0, 0.3, 10)
+
+        # **Step 1: Fade to White with a Slower Start**
+        while True:
+            elapsed_time = pygame.time.get_ticks() - start_time - 1000
+            if elapsed_time <= 0:
+                clock.tick(60)
+                continue
+
+            fade_progress = min(1, elapsed_time / fade_duration)  # Scale between 0 and 1
+
+            # **Ease-in curve for smoother fade (slow start, faster finish)**
+            alpha = int(255 * (fade_progress ** 0.5))  # Square root curve
+
+            if fade_progress >= 1:
+                break  # Stop once fully white
+
+            # **Apply the fading white overlay**
+            fade_overlay = pygame.Surface((screen_width, screen_height))
+            fade_overlay.fill((255, 255, 255))
+            fade_overlay.set_alpha(alpha / 2)  # Set opacity
+            self.screen.blit(fade_overlay, (0, 0))
+
+            pygame.display.flip()
+            clock.tick(60)  # Maintain smooth animation
+
+        # **Step 2: Full White Screen Before Fading in 'Game Over'**
+        self.screen.fill((255, 255, 255))
+        pygame.display.flip()
+
+        # **Step 3: Smoothly Fade in 'Game Over' Over `text_fade_duration`**
+        start_time = pygame.time.get_ticks()
+
+        while True:
+            elapsed_time = pygame.time.get_ticks() - start_time
+            fade_progress = min(1, elapsed_time / text_fade_duration)
+
+            if fade_progress >= 1:
+                break  # Stop when fully faded in
+
+            self.screen.fill((255, 255, 255))
+
+            # **Render multi-line text with auto-wrap**
+            text_alpha = int(fade_progress * 255)
+            y_offset = screen_height // 2 - (len(wrapped_text) * 30)  # Center vertically
+
+            for i, line in enumerate(wrapped_text):
+                text_surface = font.render(line, True, (0, 0, 0))
+                text_surface.set_alpha(text_alpha)
+                text_rect = text_surface.get_rect(center=(screen_width // 2, y_offset + i * 50))
+                self.screen.blit(text_surface, text_rect)
+
+            pygame.display.flip()
+            clock.tick(60)
+
+        # **Step 4: Wait for Mouse Click to Restart**
+        waiting = True
+        while waiting:
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    pygame.quit()
+                    sys.exit()
+                if event.type == pygame.MOUSEBUTTONDOWN:
+                    waiting = False  # Exit loop and restart game
+        pygame.quit()
+        sys.exit()
+
     def _init_player(self, initial_hex: Hex | None=None) -> Player | None:
         """Initialize the player entity on a random solid hex.
         
         Returns:
             The player entity or None if no valid position found
         """
-
-        def game_over_screen():
-            """Smoothly fades to white over `fade_duration`, then fades in 'Game Over' over `text_fade_duration`."""
-            fade_duration = 2000  # Total fade time in milliseconds (3 seconds)
-            text_fade_duration = 500  # 'Game Over' fade-in time (0.5 seconds)
-
-            clock = pygame.time.Clock()
-            font = pygame.font.SysFont(None, 40, italic=True)
-            screen_width, screen_height = self.screen.get_size()
-
-            # **Randomly pick a Game Over message**
-            message = random.choice(game_over_messages)
-
-            # **Auto-wrap the message into multiple lines**
-            wrapped_text = textwrap.wrap(message, width=40)  # Adjust width for best fit
-
-            start_time = pygame.time.get_ticks()
-            self.start_screen_shake(pygame.time.get_ticks() / 1000.0, 0.3, 10)
-
-            # **Step 1: Fade to White with a Slower Start**
-            while True:
-                elapsed_time = pygame.time.get_ticks() - start_time - 1000
-                if elapsed_time <= 0:
-                    clock.tick(60)
-                    continue
-
-                fade_progress = min(1, elapsed_time / fade_duration)  # Scale between 0 and 1
-
-                # **Ease-in curve for smoother fade (slow start, faster finish)**
-                alpha = int(255 * (fade_progress ** 0.5))  # Square root curve
-
-                if fade_progress >= 1:
-                    break  # Stop once fully white
-
-                # **Apply the fading white overlay**
-                fade_overlay = pygame.Surface((screen_width, screen_height))
-                fade_overlay.fill((255, 255, 255))
-                fade_overlay.set_alpha(alpha / 2)  # Set opacity
-                self.screen.blit(fade_overlay, (0, 0))
-
-                pygame.display.flip()
-                clock.tick(60)  # Maintain smooth animation
-
-            # **Step 2: Full White Screen Before Fading in 'Game Over'**
-            self.screen.fill((255, 255, 255))
-            pygame.display.flip()
-
-            # **Step 3: Smoothly Fade in 'Game Over' Over `text_fade_duration`**
-            start_time = pygame.time.get_ticks()
-
-            while True:
-                elapsed_time = pygame.time.get_ticks() - start_time
-                fade_progress = min(1, elapsed_time / text_fade_duration)
-
-                if fade_progress >= 1:
-                    break  # Stop when fully faded in
-
-                self.screen.fill((255, 255, 255))
-
-                # **Render multi-line text with auto-wrap**
-                text_alpha = int(fade_progress * 255)
-                y_offset = screen_height // 2 - (len(wrapped_text) * 30)  # Center vertically
-
-                for i, line in enumerate(wrapped_text):
-                    text_surface = font.render(line, True, (0, 0, 0))
-                    text_surface.set_alpha(text_alpha)
-                    text_rect = text_surface.get_rect(center=(screen_width // 2, y_offset + i * 50))
-                    self.screen.blit(text_surface, text_rect)
-
-                pygame.display.flip()
-                clock.tick(60)
-
-            # **Step 4: Wait for Mouse Click to Restart**
-            waiting = True
-            while waiting:
-                for event in pygame.event.get():
-                    if event.type == pygame.QUIT:
-                        pygame.quit()
-                        sys.exit()
-                    if event.type == pygame.MOUSEBUTTONDOWN:
-                        waiting = False  # Exit loop and restart game
-            pygame.quit()
-            sys.exit()
-
         if initial_hex is not None:
-            player = Player(initial_hex, self.animation_manager, game_over_callback=game_over_screen)
+            player = Player(initial_hex, self.animation_manager, game_over_callback=self.game_over_screen)
         else:
             # Find all solid hexes
             solid_hexes = []
@@ -397,7 +396,7 @@ class Game:
             # Choose a random solid hex
             if solid_hexes:
                 start_hex = random.choice(solid_hexes)
-                player = Player(start_hex, self.animation_manager, game_over_callback=game_over_screen)
+                player = Player(start_hex, self.animation_manager, game_over_callback=self.game_over_screen)
             else:
                 logging.warning("No suitable solid hexes found for player start position. Converting a hex to SOLID.")
                 # Try to find at least one non-LAND hex that isn't occupied
@@ -410,7 +409,7 @@ class Game:
                 if non_land_hexes:
                     hex = random.choice(non_land_hexes)
                     hex.state = HexState.SOLID  # Convert to SOLID
-                    player = Player(hex, self.animation_manager, game_over_callback=game_over_screen)
+                    player = Player(hex, self.animation_manager, game_over_callback=self.game_over_screen)
 
                 else:
                     # Last resort: find any hex not at the edge
@@ -550,7 +549,7 @@ class Game:
     def run(self) -> None:
         """Run the main game loop."""
         # Display introduction screen before starting the game
-        self.show_introduction_screen()
+        self.show_text_screen()
         
         try:
             running = True
@@ -1455,9 +1454,14 @@ class Game:
         self.save_current_area()
         
         # Update supergrid position, ensuring we stay within bounds
-        new_x = max(0, min(self.supergrid_size - 1, self.supergrid_position[0] + dx))
-        new_y = max(0, min(self.supergrid_size - 1, self.supergrid_position[1] + dy))
-        
+        new_x = self.supergrid_position[0] + dx
+        new_y = self.supergrid_position[1] + dy
+
+        if new_x < 0 or new_x >= self.supergrid_size or new_y < 0 or new_y >= self.supergrid_size:
+            self.show_text_screen(victory=True)
+            pygame.quit()
+            sys.exit()
+
         # If position hasn't changed, we're at the edge of the world
         if new_x == self.supergrid_position[0] and new_y == self.supergrid_position[1]:
             return False
@@ -1640,7 +1644,7 @@ class Game:
             pygame.display.flip()
             clock.tick(60)
 
-    def show_introduction_screen(self) -> None:
+    def show_text_screen(self, victory=False) -> None:
         """Show an introduction screen with game instructions."""
         # Setup
         screen_width, screen_height = self.screen.get_size()
@@ -1649,23 +1653,46 @@ class Game:
         font_body = pygame.font.SysFont(None, 28)
         
         # Introduction text
-        intro_text = [
-            "The ice is fragile. The water is deathly cold.",
-            "",
-            "MOVE one hex in any direction. This is safe.",
-            "ATTACK an adjacent enemy. This will only push them back.",
-            "JUMP two hexes in any direction. This will damage the ice you jump from and land on.",
-            "STOMP on your own hex to damage it and everything around it. You cannot stomp cracked ice.",
-            "SLIDE exactly three squares on uncracked ice and knock back enemies.",
-            "",
-            "When on land you can only MOVE and ATTACK. There is no difference in the land terrains.",
-            "",
-            "RIGHT-CLICK to show your available moves.",
-            "",
-            "Seven screens from the start is safety.",
-            "",
-            "You are being hunted."
-        ]
+        if victory:
+            text = [
+                "On Thin Ice",
+                "",
+                "The ice cracks one last time behind you and wind no longer carries the hunt. You step onto solid ground.",
+                "No more shifting, no more breaking, no more cold water waiting below.",
+                "",
+                "You look down. A trail of footprints leads ahead, half-buried in the snow. Not yours. But ",
+                "they match.",
+                "",
+                "The sky is clear now. The stars look different here.",
+                "",
+                "A structure looms in the distance, half-buried. Rusted metal, shattered glass. A door.",
+                "",
+                "Inside, the walls are covered in names. Some have been scratched out.",
+                "",
+                "One remains.",
+                "",
+                "Yours."
+            ]
+        else:
+            text = [
+                "On Thin Ice",
+                "",
+                "The ice is fragile. The water is deathly cold.",
+                "",
+                "MOVE one hex in any direction. This is safe.",
+                "ATTACK an adjacent enemy. This will only push them back.",
+                "JUMP two hexes in any direction. This will damage the ice you jump from and land on.",
+                "STOMP on your own hex to damage it and everything around it. You cannot stomp cracked ice.",
+                "SLIDE exactly three squares on uncracked ice and knock back enemies.",
+                "",
+                "When on land you can only MOVE and ATTACK. There is no difference in the land terrains.",
+                "",
+                "RIGHT-CLICK to show your available moves.",
+                "",
+                "Seven screens from the start is safety.",
+                "",
+                "You are being hunted."
+            ]
         
         # Animation parameters
         fade_duration = 700  # ms for text fade in
@@ -1691,10 +1718,10 @@ class Game:
             self.screen.fill((255, 255, 255))
             
             # Draw text with fade-in effect
-            y_offset = 150  # Starting position from top
+            y_offset = 100  # Starting position from top
             
             # Draw title (first line) with different formatting
-            title_line = intro_text[0]
+            title_line = text[0]
             title_surface = font_title.render(title_line, True, (0, 0, 0))
             title_surface.set_alpha(text_alpha)
             title_rect = title_surface.get_rect(center=(screen_width // 2, y_offset))
@@ -1702,7 +1729,7 @@ class Game:
             y_offset += 60  # More space after title
             
             # Draw remaining lines
-            for i, line in enumerate(intro_text[1:]):
+            for i, line in enumerate(text[1:]):
                 if line:  # Skip empty lines in rendering but add space
                     text_surface = font_body.render(line, True, (0, 0, 0))
                     text_surface.set_alpha(text_alpha)
