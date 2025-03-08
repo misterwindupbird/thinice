@@ -304,7 +304,7 @@ class Game:
             wrapped_text = textwrap.wrap(message, width=40)  # Adjust width for best fit
 
             start_time = pygame.time.get_ticks()
-            self.start_screen_shake(pygame.time.get_ticks() / 1000.0, 1.0)
+            self.start_screen_shake(pygame.time.get_ticks() / 1000.0, 0.3, 10)
 
             # **Step 1: Fade to White with a Slower Start**
             while True:
@@ -359,7 +359,7 @@ class Game:
                 pygame.display.flip()
                 clock.tick(60)
 
-                # **Step 4: Wait for Mouse Click to Restart**
+            # **Step 4: Wait for Mouse Click to Restart**
             waiting = True
             while waiting:
                 for event in pygame.event.get():
@@ -556,6 +556,12 @@ class Game:
                 for event in pygame.event.get():
                     if event.type == pygame.QUIT:
                         running = False
+                    elif event.type == pygame.USEREVENT:
+                        # Handle delayed game over
+                        if self.player and hasattr(self.player, 'pending_game_over') and self.player.pending_game_over:
+                            self.player.pending_game_over = False
+                            pygame.time.set_timer(pygame.USEREVENT, 0)  # Cancel the timer
+                            self.player._pending_game_over_callback()  # Call the original callback
                     elif event.type == pygame.MOUSEBUTTONDOWN:
                         if event.button == 1:  # Left click
                             self._handle_click(event.pos, current_time)
@@ -773,6 +779,12 @@ class Game:
         """
         # Only handle clicks if no animations are running
         if self.animation_manager.blocking_animations > 0:
+            return
+            
+        # Don't handle clicks if player is stunned
+        if self.player and self.player.is_stunned(current_time):
+            # Optionally add a visual indicator or sound that the player is stunned
+            self.add_floating_text("STUNNED", self.player.position, (255, 0, 0))
             return
             
         # Convert pixel coordinates to hex coordinates
@@ -1175,7 +1187,7 @@ class Game:
             # Player's turn is complete, switch to enemy turn
             self.game_state = GameState.ENEMY
             logging.info("Switching to ENEMY turn")
-            self._enemy_ai()
+            self._enemy_ai(current_time)
         elif self.game_state == GameState.ENEMY:
             # Enemy's turn is complete, switch to player turn
             self.game_state = GameState.PLAYER
@@ -1183,9 +1195,8 @@ class Game:
             self.turn_counter += 1
 
 
-    def _enemy_ai(self) -> None:
+    def _enemy_ai(self, current_time: float) -> None:
         """Run AI for all enemies."""
-        current_time = pygame.time.get_ticks() / 1000.0
         
         # First, remove any dead enemies that might still be in the list
         dead_enemies = [enemy for enemy in self.enemies if enemy.animation_type == "dead"]
@@ -1222,9 +1233,15 @@ class Game:
 
             # If player is adjacent, attack instead of moving
             if self.player and self.player.current_hex in self.get_hex_neighbors(enemy.current_hex):
-                # self.add_floating_text("ATTACK", enemy.current_hex.center)
-                self.start_screen_shake(current_time=current_time, duration=.1)
-                self.player.take_damage()
+                # Create a callback function to apply damage after animation
+                def on_attack_complete():
+                    current_time = pygame.time.get_ticks() / 1000.0
+                    self.start_screen_shake(current_time=current_time)
+                    self.player.take_damage()
+                
+                # Use the attack animation before applying damage
+                enemy.attack(self.player, current_time, on_attack_complete)
+                any_enemy_moved = True
                 continue
 
             # Find path to player
