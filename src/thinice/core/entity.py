@@ -454,3 +454,10 @@ class Wolf(Entity):
         logging.debug(f'{self}: pushed to {self.target_hex}')
         self.animation_manager.blocking_animations += 1
 
+
+class HealthRestore(Entity):
+
+    def __init__(self, start_hex, animation_manager: AnimationManager):
+        super().__init__(start_hex, animation_manager, token='heart_full.png')
+        self.animation_type = "none"
+

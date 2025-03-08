@@ -15,7 +15,7 @@ import textwrap
 from .animation_manager import AnimationManager
 from .hex import Hex
 from .hex_state import HexState
-from .entity import Player, Wolf
+from .entity import Player, Wolf, HealthRestore
 from .floating_text import FloatingText
 from ..config import settings
 from ..config.settings import worldgen, game_settings, game_over_messages
@@ -131,12 +131,14 @@ class Game:
         # Initialize entity collections
         self.player = None
         self.enemies = []
+        self.health_restore = None
         
         # Initialize sprite groups (moved up before _init_hex_grid)
         self.all_sprites = pygame.sprite.Group()
         self.player_sprite = pygame.sprite.GroupSingle()
         self.enemy_sprites = pygame.sprite.Group()
-        
+        self.health_restore_sprite = pygame.sprite.GroupSingle()
+
         self._init_hex_grid()  # This calculates world_width and world_height
         self.start_time = pygame.time.get_ticks() / 1000.0
         
@@ -1287,6 +1289,15 @@ class Game:
         if hasattr(self, 'all_sprites'):
             self.all_sprites.add(enemy)
 
+    def add_health_restore(self, hex: Hex) -> None:
+        self.health_restore = HealthRestore(hex, self.animation_manager)
+        # Add enemy to sprite groups if they exist
+        if hasattr(self, 'health_restore_sprite'):
+            self.health_restore_sprite.add(self.health_restore)
+        if hasattr(self, 'all_sprites'):
+            self.all_sprites.add(self.health_restore)
+
+
     def _hex_has_entity(self, hex: Hex) -> bool:
         """Check if a hex has an entity on it.
         
@@ -1393,6 +1404,17 @@ class Game:
         # Check if sprite groups exist before using them
         if hasattr(self, 'enemy_sprites'):
             self.enemy_sprites.empty()
+
+
+        if self.health_restore and hasattr(self, 'all_sprites'):
+            self.all_sprites.remove(self.health_restore)
+
+        self.health_restore = None
+        if hasattr(self, 'health_restore_sprite'):
+            self.health_restore_sprite.empty()
+
+        self.add_health_restore(self.hexes[5][self.supergrid_position[1]+1])
+        logging.info(f'added health restore: {self.health_restore} -> {self.health_restore.current_hex}')
         
         # Don't spawn enemies automatically - just log the count
         if area.enemy_count > 0:
