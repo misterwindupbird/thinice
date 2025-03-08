@@ -12,13 +12,14 @@ from enum import Enum, auto
 from pathlib import Path
 import textwrap
 
+from thinice.core.entity import Player
 from .animation_manager import AnimationManager
 from .hex import Hex
 from .hex_state import HexState
 from .entity import Player, Wolf, HealthRestore
 from .floating_text import FloatingText
 from ..config import settings
-from ..config.settings import worldgen, game_settings, game_over_messages, health_restore_messages
+from ..config.settings import worldgen, game_settings, game_over_messages, health_restore_messages, hex_grid
 
 # Add a test logging statement to verify logging is working
 logging.info("Logging test: Game started")
@@ -293,7 +294,7 @@ class Game:
         # Load the current area's data
         self._restore_area()
 
-    def _init_player(self) -> Player:
+    def _init_player(self, initial_hex: Hex | None=None) -> Player | None:
         """Initialize the player entity on a random solid hex.
         
         Returns:
@@ -383,65 +384,54 @@ class Game:
             pygame.quit()
             sys.exit()
 
-        # Find all solid hexes
-        solid_hexes = []
-        for row in self.hexes:
-            for hex in row:
-                if hex and hex.state == HexState.SOLID and not self._hex_has_entity(hex):
-                    solid_hexes.append(hex)
-        
-        # Choose a random solid hex
-        if solid_hexes:
-            start_hex = random.choice(solid_hexes)
-            player = Player(start_hex, self.animation_manager, game_over_callback=game_over_screen)
-
-            # Add player to sprite groups
-            if hasattr(self, 'player_sprite'):
-                self.player_sprite.add(player)
-            if hasattr(self, 'all_sprites'):
-                self.all_sprites.add(player)
-            
-            return player
+        if initial_hex is not None:
+            player = Player(initial_hex, self.animation_manager, game_over_callback=game_over_screen)
         else:
-            logging.warning("No suitable solid hexes found for player start position. Converting a hex to SOLID.")
-            # Try to find at least one non-LAND hex that isn't occupied
-            non_land_hexes = []
+            # Find all solid hexes
+            solid_hexes = []
             for row in self.hexes:
                 for hex in row:
-                    if hex and hex.state != HexState.LAND and not self._hex_has_entity(hex):
-                        non_land_hexes.append(hex)
-            
-            if non_land_hexes:
-                hex = random.choice(non_land_hexes)
-                hex.state = HexState.SOLID  # Convert to SOLID
-                player = Player(hex, self.animation_manager, game_over_callback=game_over_screen)
-                
-                # Add player to sprite groups
-                if hasattr(self, 'player_sprite'):
-                    self.player_sprite.add(player)
-                if hasattr(self, 'all_sprites'):
-                    self.all_sprites.add(player)
-                
-                return player
-            
-            # Last resort: find any hex not at the edge
-            logging.error("No suitable hexes found! Trying a random interior hex.")
-            random_x = random.randint(2, len(self.hexes) - 3)
-            random_y = random.randint(2, len(self.hexes[0]) - 3)
-            if self.hexes[random_x][random_y]:
-                hex = self.hexes[random_x][random_y]
-                hex.state = HexState.SOLID  # Force to SOLID
-                player = Player(hex, self.animation_manager)
-                
-                # Add player to sprite groups
-                if hasattr(self, 'player_sprite'):
-                    self.player_sprite.add(player)
-                if hasattr(self, 'all_sprites'):
-                    self.all_sprites.add(player)
-                
-                return player
-            
-            logging.error("Could not create player - no valid hexes found!")
+                    if hex and hex.state == HexState.SOLID and not self._hex_has_entity(hex):
+                        solid_hexes.append(hex)
+
+            # Choose a random solid hex
+            if solid_hexes:
+                start_hex = random.choice(solid_hexes)
+                player = Player(start_hex, self.animation_manager, game_over_callback=game_over_screen)
+            else:
+                logging.warning("No suitable solid hexes found for player start position. Converting a hex to SOLID.")
+                # Try to find at least one non-LAND hex that isn't occupied
+                non_land_hexes = []
+                for row in self.hexes:
+                    for hex in row:
+                        if hex and hex.state != HexState.LAND and not self._hex_has_entity(hex):
+                            non_land_hexes.append(hex)
+
+                if non_land_hexes:
+                    hex = random.choice(non_land_hexes)
+                    hex.state = HexState.SOLID  # Convert to SOLID
+                    player = Player(hex, self.animation_manager, game_over_callback=game_over_screen)
+
+                else:
+                    # Last resort: find any hex not at the edge
+                    logging.error("No suitable hexes found! Trying a random interior hex.")
+                    random_x = random.randint(2, len(self.hexes) - 3)
+                    random_y = random.randint(2, len(self.hexes[0]) - 3)
+                    if self.hexes[random_x][random_y]:
+                        hex = self.hexes[random_x][random_y]
+                        hex.state = HexState.SOLID  # Force to SOLID
+                        player = Player(hex, self.animation_manager)
+                    else:
+                        logging.error("Could not create player - no valid hexes found!")
+                        return None
+
+        # Add player to sprite groups
+        if hasattr(self, 'player_sprite'):
+            self.player_sprite.add(player)
+        if hasattr(self, 'all_sprites'):
+            self.all_sprites.add(player)
+
+        return player
 
     def get_hex_neighbors(self, hex: Hex) -> List[Hex]:
         """Get list of neighboring hex tiles.
@@ -1193,6 +1183,15 @@ class Game:
             self.remove_health_restore()
             self.display_message(random.choice(health_restore_messages))
 
+        if self.player.current_hex.grid_x == 0:
+            self.navigate_area(dx=-1)
+        elif self.player.current_hex.grid_x == hex_grid.GRID_WIDTH - 2:
+            self.navigate_area(dx=1)
+        elif self.player.current_hex.grid_y == 0:
+            self.navigate_area(dy=-1)
+        elif self.player.current_hex.grid_y == hex_grid.GRID_HEIGHT - 2:
+            self.navigate_area(dy=1)
+
         # Handle state transitions
         if self.game_state == GameState.PLAYER:
             # Player's turn is complete, switch to enemy turn
@@ -1445,7 +1444,7 @@ class Game:
                     queue.append((nx, ny))
 
 
-    def navigate_area(self, dx, dy):
+    def navigate_area(self, dx=0, dy=0):
         """Navigate to a different area in the supergrid.
         
         Args:
@@ -1489,9 +1488,6 @@ class Game:
                     # Clear cracks only for now - we'll restore them properly in _restore_area
                     hex.cracks = []
         
-        # Load the new area - all areas should already be generated
-        area = self.areas[self.supergrid_position[0]][self.supergrid_position[1]]
-        
         # Always restore the area (all areas should be generated)
         self._restore_area()
 
@@ -1501,9 +1497,30 @@ class Game:
                 self.player_sprite.empty()
             if hasattr(self, 'all_sprites'):
                 self.all_sprites.remove(self.player)
-        self.player = self._init_player()
-        
+
+        match dx:
+            case -1:
+                x = hex_grid.GRID_WIDTH - 2
+            case 0:
+                x = self.player.current_hex.grid_x
+            case 1:
+                x = 1
+            case _:
+                raise ValueError
+        match dy:
+            case -1:
+                y = hex_grid.GRID_HEIGHT - (2 if self.player.current_hex.grid_x % 2 == 0 else 3)
+            case 0:
+                y = self.player.current_hex.grid_y
+            case 1:
+                y = 1
+            case _:
+                raise ValueError
+
+        self.player = self._init_player(self.hexes[x][y])
+
         logging.info(f"Navigated to supergrid position: {self.supergrid_position}")
+        logging.debug(f"Positioned player at {self.player.current_hex}")
         return True
 
     def display_message(self, message: str) -> None:
