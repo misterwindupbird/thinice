@@ -6,9 +6,7 @@ import logging
 from .hex import Hex
 from .hex_state import HexState
 
-def a_star(start_hex: Hex,
-           target_hex: Hex,
-           valid_states: frozenset[HexState] = frozenset({HexState.SOLID, HexState.CRACKED, HexState.LAND})) -> Optional[List[Hex]]:
+def a_star(start_hex: Hex, target_hex: Hex) -> Optional[List[Hex]]:
     """Find the shortest path between two hexes using A* algorithm.
 
     Args:
@@ -27,6 +25,13 @@ def a_star(start_hex: Hex,
     if not game:
         logging.error("Game instance not available for pathfinding")
         return None
+
+    # Cost mapping: Higher cost means less preferred
+    TERRAIN_COSTS = {
+        HexState.CRACKED: 1,
+        HexState.SOLID: 2,
+        HexState.LAND: 8  # Less preferred, but still allowed
+    }
 
     # can't move into occupied or to-be-occupied hexes
     occupied = set()
@@ -73,7 +78,7 @@ def a_star(start_hex: Hex,
         # Check all neighbors
         for neighbor in game.get_hex_neighbors(current):
             # Skip if this neighbor is not in a valid state
-            if neighbor.state not in valid_states:
+            if neighbor.state not in TERRAIN_COSTS.keys():
                 continue
 
             # Skip if we've already processed this neighbor
@@ -85,7 +90,7 @@ def a_star(start_hex: Hex,
                 continue
 
             # Calculate tentative g_score
-            tentative_g_score = g_score[current] + 1  # Cost is 1 for each step
+            tentative_g_score = g_score[current] + TERRAIN_COSTS.get(neighbor.state, 10)
 
             # If this neighbor is not in open set or we found a better path
             if neighbor not in g_score or tentative_g_score < g_score[neighbor]:
