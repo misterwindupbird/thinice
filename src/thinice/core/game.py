@@ -840,7 +840,7 @@ class Game:
         x, y = position
 
         for i in range(game_settings.MAX_HEALTH):
-            heart_img = HEART_CACHE["full"] if i < self.player.health else HEART_CACHE["empty"]
+            heart_img = HEART_CACHE["full"] if i < Player.HEALTH else HEART_CACHE["empty"]
             self.screen.blit(heart_img, (x + i * spacing, y))  # Draw heart with spacing
 
 
@@ -1013,8 +1013,8 @@ class Game:
 
         if self.health_restore and self.player.current_hex == self.health_restore.current_hex:
             logging.info(f"Health restore for {self.player.current_hex}. Restoring...")
-            if self.player.health < game_settings.MAX_HEALTH:
-                self.player.health += 1
+            if Player.HEALTH < game_settings.MAX_HEALTH:
+               Player.HEALTH += 1
 
             self.remove_health_restore()
             self.display_message(random.choice(health_restore_messages))

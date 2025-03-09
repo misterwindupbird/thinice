@@ -337,8 +337,12 @@ class Entity(pygame.sprite.Sprite, ABC):
 
 class Player(Entity):
     """Player entity that can move between hex tiles."""
-    
-    def __init__(self, start_hex, animation_manager: AnimationManager, game_over_callback: Callable[[], None]):
+
+    HEALTH = game_settings.MAX_HEALTH -1
+
+    def __init__(self, start_hex,
+                 animation_manager: AnimationManager,
+                 game_over_callback: Callable[[], None]):
         """Initialize the player entity.
         
         Args:
@@ -347,7 +351,6 @@ class Player(Entity):
         """
         super().__init__(start_hex, animation_manager, 'player_token.png')
 
-        self.health = game_settings.MAX_HEALTH -1
         self.game_over_callback = game_over_callback
 
     def jump(self, target_hex, current_time):
@@ -413,8 +416,8 @@ class Player(Entity):
 
     def take_damage(self):
 
-        self.health -= 1
-        if self.health <= 0:
+        Player.HEALTH -= 1
+        if Player.HEALTH <= 0:
             self.game_over_callback()
 
 class Wolf(Entity):
