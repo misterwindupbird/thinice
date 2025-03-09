@@ -59,6 +59,10 @@ class Entity(pygame.sprite.Sprite, ABC):
         self.image = pygame.transform.smoothscale(self.original_image, (hex_grid.RADIUS, hex_grid.RADIUS))
         self.rect = self.image.get_rect(center=self.position)
 
+        self.jump_peak_height = 20  # Max jump height
+        self.shadow_size = (40, 40)  # Default shadow size (width, height)
+        self.shadow_offset = (0, 0)
+
         # Callback for when animation completes
         self.on_animation_complete = None
         self.stunned = False
@@ -95,7 +99,9 @@ class Entity(pygame.sprite.Sprite, ABC):
         if self.animation_type == "drown":
             self._update_drown_animation(progress)
             return
-        elif not self.is_moving and self.animation_type not in ["move", "jump", "sprint", "pushed"]:
+        elif self.animation_type == "jump":
+            self._update_jump_animation(progress)
+        elif not self.is_moving and self.animation_type not in ["move", "sprint", "pushed"]:
             # No animation in progress
             return
 
@@ -190,6 +196,42 @@ class Entity(pygame.sprite.Sprite, ABC):
             if new_size > 0:  # Prevent scaling to zero which would cause errors
                 self.image = pygame.transform.smoothscale(self.original_image, (new_size, new_size))
                 self.rect = self.image.get_rect(center=self.position)
+
+    def _update_jump_animation(self, progress: float) -> None:
+
+        # **Apply an arc using a quadratic easing function**
+        arc_height = self.jump_peak_height * (4 * (progress - 0.5) ** 2 - 1)
+
+        # **Lerp X & Y movement**
+        new_x = self.move_start_pos[0] + (self.move_end_pos[0] - self.move_start_pos[0]) * progress
+        new_y = self.move_start_pos[1] + (self.move_end_pos[1] - self.move_start_pos[1]) * progress - arc_height
+
+        self.position = (new_x, new_y)
+        self.shadow_offset = (arc_height, arc_height)
+
+    def draw(self, screen: pygame.Surface, current_time: float) -> None:
+        """Draw the entity.
+
+        This method is kept for backward compatibility.
+        In a full sprite-based system, you would use sprite group's draw method instead.
+
+        Args:
+            screen: Pygame surface to draw on
+            current_time: Current game time in seconds
+        """
+        if self.animation_type == "jump":
+            self.draw_shadow(screen)
+        screen.blit(self.image, self.rect.topleft)
+
+    def draw_shadow(self, screen):
+        """Draws a dynamic shadow beneath the player."""
+        shadow_surface = pygame.Surface(self.shadow_size, pygame.SRCALPHA)
+        pygame.draw.ellipse(shadow_surface, (0, 0, 0, 100), (0, 0, *self.shadow_size))
+
+        shadow_x = self.rect.topleft[0] - self.shadow_offset[0]
+        shadow_y = self.rect.topleft[1] - self.shadow_offset[1]
+
+        screen.blit(shadow_surface, (shadow_x, shadow_y))
 
     def get_adjacent_hexes(self) -> list:
         """Get list of adjacent hexes.
@@ -321,19 +363,7 @@ class Entity(pygame.sprite.Sprite, ABC):
             if self.animation_type in ["move", "jump", "sprint", "pushed", "attack"]:
                 self.animation_type = "none"
 
-    def draw(self, screen: pygame.Surface, current_time: float) -> None:
-        """Draw the entity.
-        
-        This method is kept for backward compatibility.
-        In a full sprite-based system, you would use sprite group's draw method instead.
 
-        Args:
-            screen: Pygame surface to draw on
-            current_time: Current game time in seconds
-        """
-        # The sprite's image and rect are already updated in the update method
-        # Just blit the image at the rect position
-        screen.blit(self.image, self.rect.topleft)
 
 class Player(Entity):
     """Player entity that can move between hex tiles."""
@@ -371,6 +401,7 @@ class Player(Entity):
 
         logging.debug(f'{self}: started jump')
         self.animation_manager.blocking_animations += 1
+
     
     def sprint(self, path, current_time, completion):
         """Move directly to the end hex of the path with a single animation.
