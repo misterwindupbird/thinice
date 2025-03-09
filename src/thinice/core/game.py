@@ -518,109 +518,6 @@ class Game:
         
         return valid_targets
     
-    def find_straight_line_path(self, start_hex: Hex, end_hex: Hex) -> Optional[List[Hex]]:
-        """Find a straight line path between two hexes if one exists.
-        
-        Args:
-            start_hex: Starting hex
-            end_hex: Ending hex
-            
-        Returns:
-            List of hexes in the path including start and end, or None if no straight line exists
-        """
-        # Check if the hexes are in a straight line by checking if they share a direction
-        # In a hex grid, there are 6 possible directions
-        
-        # Get the grid coordinates
-        start_x, start_y = start_hex.grid_x, start_hex.grid_y
-        end_x, end_y = end_hex.grid_x, end_hex.grid_y
-        
-        # Adjust for odd-row offset in our coordinate system
-        if start_x % 2 == 1:
-            start_y = start_y + 0.5
-        if end_x % 2 == 1:
-            end_y = end_y + 0.5
-        
-        # Calculate the vector between the hexes
-        dx = end_x - start_x
-        dy = end_y - start_y
-        
-        # Check if the distance is exactly 3
-        distance = self.hex_distance(start_hex, end_hex)
-        if distance != 3:
-            return None
-        
-        # Check if it's a straight line by seeing if the ratio of dx to dy matches one of the 6 directions
-        # The 6 directions in a hex grid are:
-        # (1,0), (0.5,0.75), (-0.5,0.75), (-1,0), (-0.5,-0.75), (0.5,-0.75)
-        
-        # Normalize the vector
-        length = (dx**2 + dy**2)**0.5
-        if length == 0:
-            return None
-            
-        dx_norm = dx / length
-        dy_norm = dy / length
-        
-        # Define the 6 directions (normalized)
-        directions = [
-            (1, 0),                    # East
-            (0.5, 0.866),              # Northeast
-            (-0.5, 0.866),             # Northwest
-            (-1, 0),                   # West
-            (-0.5, -0.866),            # Southwest
-            (0.5, -0.866)              # Southeast
-        ]
-        
-        # Check if our normalized vector is close to any of these directions
-        is_straight = False
-        for dir_x, dir_y in directions:
-            # Calculate dot product to check alignment
-            dot_product = dx_norm * dir_x + dy_norm * dir_y
-            if dot_product > 0.95:  # Allow some small error
-                is_straight = True
-                break
-                
-        if not is_straight:
-            return None
-        
-        # Now find the intermediate hexes
-        path = [start_hex]
-        
-        # Find the two intermediate hexes
-        for step in range(1, 3):
-            # Calculate the position at this step
-            ratio = step / 3.0
-            intermediate_x = start_x + dx * ratio
-            intermediate_y = start_y + dy * ratio
-            
-            # Find the nearest hex to this position
-            nearest_hex = None
-            min_distance = float('inf')
-            
-            # Check all hexes at distance 'step' from start
-            hexes_at_distance = self.get_hexes_at_distance(start_hex, step)
-            for hex in hexes_at_distance:
-                hex_x, hex_y = hex.grid_x, hex.grid_y
-                if hex_x % 2 == 1:
-                    hex_y = hex_y + 0.5
-                
-                # Calculate distance to the ideal position
-                dist = ((hex_x - intermediate_x)**2 + (hex_y - intermediate_y)**2)**0.5
-                if dist < min_distance:
-                    min_distance = dist
-                    nearest_hex = hex
-            
-            if nearest_hex:
-                path.append(nearest_hex)
-            else:
-                return None
-        
-        # Add the end hex
-        path.append(end_hex)
-        
-        return path
-    
     def _handle_click(self, pos: Tuple[int, int], current_time: float) -> None:
         """Handle mouse click event.
         
@@ -691,7 +588,7 @@ class Game:
         if self.player.is_moving:
             return
 
-        # Check for SPRINT action (3 hexes away in a straight line)
+        # Check for SLIDE action (3 hexes away in a straight line)
         sprint_targets = self.get_valid_sprint_targets(self.player.current_hex)
         for target, path in sprint_targets:
             if clicked_hex == target:
@@ -957,11 +854,13 @@ class Game:
         
         # Define callback for when jump animation completes
         def on_jump_complete():
-            # Crack or break the landing hex
-            if target_hex.state == HexState.SOLID:
-                target_hex.crack([])
-            elif target_hex.state == HexState.CRACKED:
-                target_hex.break_ice()
+            in_between = set(self.get_hex_neighbors(launch_hex)).intersection(set(self.get_hex_neighbors(target_hex)))
+            in_between.add(target_hex)
+            for ihex in in_between:
+                if ihex.state == HexState.SOLID:
+                    ihex.crack([])
+                elif ihex.state == HexState.CRACKED:
+                    ihex.break_ice()
         
         # Store the callback to be executed when animation completes
         self.player.on_animation_complete = on_jump_complete
