@@ -83,7 +83,7 @@ class Entity(pygame.sprite.Sprite, ABC):
         # If the entity is dead, don't update it
         if self.animation_type == "dead":
             # Just log occasionally to avoid spamming the console
-            if random.random() < 0.01:  # Only log about 1% of the time
+            if random.random() < 0.001:  # Only log about .1% of the time
                 logging.debug(f"{self} is dead, not updating")
             return
             

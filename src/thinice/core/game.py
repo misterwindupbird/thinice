@@ -1003,13 +1003,14 @@ class Game:
                 enemy.drown(current_time=current_time)
                 drowning_started = True
                 
+        # Process any pending hex effects
+        self.process_pending_hex_effects(current_time)
+
         # If we started new animations, don't switch state yet
         if self.animation_manager.blocking_animations > 0 or drowning_started:
             logging.info(f"Animations still in progress, not switching state. Blocking animations: {self.animation_manager.blocking_animations}")
             return
             
-        # Process any pending hex effects
-        self.process_pending_hex_effects(current_time)
 
         if self.health_restore and self.player.current_hex == self.health_restore.current_hex:
             logging.info(f"Health restore for {self.player.current_hex}. Restoring...")
@@ -1251,7 +1252,7 @@ class Game:
     def spawn_enemies(self):
         # add some enemies
         enemy_positions = set()
-        enemies_to_spawn = 6 # area.enemy_count if area.enemy_count else 6
+        enemies_to_spawn = 1 # area.enemy_count if area.enemy_count else 6
         while enemies_to_spawn > 0:
             pack_size = min(random.randint(2, 6), enemies_to_spawn)
             pack_positions = []
@@ -1406,7 +1407,7 @@ class Game:
         logging.info(f"Navigated to supergrid position: {self.supergrid_position}")
         logging.debug(f"Positioned player at {self.player.current_hex}")
 
-        # self.spawn_enemies()
+        self.spawn_enemies()
 
         return True
 
