@@ -352,7 +352,7 @@ class Hex:
         self.transition_start_time = pygame.time.get_ticks() / 1000.0
         
         # Increase transition duration for a slower, more visible animation
-        self.transition_duration = 1.5
+        self.transition_duration = animation.BREAKING_DURATION
         self.transition_progress = 0.0
         self.animation_manager.blocking_animations += 1
         logging.debug(f'{self.animation_manager.blocking_animations=}')
@@ -781,10 +781,9 @@ class Hex:
             pygame.draw.polygon(temp_surface, water.BASE_COLOR, adjusted_vertices)
             
             # Draw the base ice (white)
-            pygame.draw.polygon(temp_surface, self.color, adjusted_vertices)
+            # pygame.draw.polygon(temp_surface, self.color, adjusted_vertices)
             
             # Draw widened cracks with water color
-            water_crack_color = water.CRACK_COLOR  # Use the color from settings
             for crack in self.cracks:
                 # Skip invalid cracks
                 if len(crack.points) < 2:
@@ -795,7 +794,7 @@ class Hex:
                                 for p in crack.points]
                                 
                 # Draw water through cracks - using water color
-                pygame.draw.lines(temp_surface, water_crack_color, False, adjusted_points, 10)
+                pygame.draw.lines(temp_surface, water.CRACK_COLOR, False, adjusted_points, 10)
             
             # Now identify and color the fragments using a simple flood fill
             self.broken_surface = self._color_fragments(temp_surface, surface_size)
@@ -1134,7 +1133,7 @@ class Hex:
         pygame.draw.polygon(ice_surface, self.color, local_vertices)
         
         # Apply a fade effect by adjusting the surface's alpha
-        ice_alpha = int(255 * (1.0 - t * 0.7))
+        ice_alpha = int(100 * (1.0 - t * 0.7))
         ice_surface.set_alpha(ice_alpha)
         
         # 4. Create a surface for the cracks (top layer)

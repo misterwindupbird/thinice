@@ -126,7 +126,7 @@ class Entity(pygame.sprite.Sprite, ABC):
         self.target_hex = target_hex
         self.is_moving = True
         self.animation_start_time = current_time
-        self.animation_duration = 0.3  # Regular move is faster
+        self.animation_duration = 0.15  # Regular move is faster
         self.animation_type = "move"
 
         assert self.current_hex.center == self.position
@@ -161,7 +161,7 @@ class Entity(pygame.sprite.Sprite, ABC):
 
         self.animation_manager.blocking_animations += 1
         self.animation_start_time = current_time
-        self.animation_duration = 0.5  # Slightly longer for drowning animation
+        self.animation_duration = 0.3  # Slightly longer for drowning animation
         self.animation_type = "drown"
         
         # Reset any movement flags
@@ -276,7 +276,7 @@ class Entity(pygame.sprite.Sprite, ABC):
         self.animation_type = "attack"
         self.is_moving = True
         self.animation_start_time = current_time
-        self.animation_duration = 0.3  # Quick attack animation
+        self.animation_duration = 0.2  # Quick attack animation
         
         # Calculate the direction vector from this entity to the target
         dx = target_entity.position[0] - self.position[0]
@@ -290,7 +290,7 @@ class Entity(pygame.sprite.Sprite, ABC):
         
         # Move 70% of the way toward the edge of the hex
         from ..config.settings import hex_grid
-        edge_distance = hex_grid.RADIUS * 0.7
+        edge_distance = hex_grid.RADIUS * 0.8
         
         # Calculate the attack position (toward the target)
         attack_x = self.position[0] + dx * edge_distance
@@ -393,7 +393,7 @@ class Player(Entity):
         self.target_hex = target_hex
         self.is_moving = True
         self.animation_start_time = current_time
-        self.animation_duration = 0.5  # Longer duration for jump
+        self.animation_duration = 0.3  # Longer duration for jump
         self.move_start_pos = self.current_hex.center
         self.move_end_pos = target_hex.center
         self.animation_type = "jump"
@@ -421,7 +421,7 @@ class Player(Entity):
         self.animation_start_time = current_time
         self.move_start_pos = self.current_hex.center
         self.move_end_pos = end_hex.center
-        self.animation_duration = 0.5  # Longer duration for sprint
+        self.animation_duration = 0.3  # Longer duration for sprint
         self.on_animation_complete = completion
 
         # Add floating text for SPRINT
