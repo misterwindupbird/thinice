@@ -856,10 +856,11 @@ class Game:
         def on_jump_complete():
             in_between = set(self.get_hex_neighbors(launch_hex)).intersection(set(self.get_hex_neighbors(target_hex)))
             in_between.add(target_hex)
+            in_between.add(launch_hex)
             for ihex in in_between:
                 if ihex.state == HexState.SOLID:
-                    ihex.crack([])
-                elif ihex.state == HexState.CRACKED:
+                    ihex.crack(self.get_hex_neighbors(ihex))
+                elif ihex.state == HexState.CRACKED and ihex != launch_hex:
                     ihex.break_ice()
         
         # Store the callback to be executed when animation completes

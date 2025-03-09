@@ -236,7 +236,7 @@ class Hex:
         
         # Connect to cracked neighbors - store these connections for animation
         for neighbor in neighbors:
-            if neighbor.state != HexState.CRACKED:
+            if neighbor.state not in {HexState.CRACKED, HexState.CRACKING, HexState.BREAKING, HexState.BROKEN}:
                 continue
                 
             edge_index = self.get_shared_edge_index(neighbor)
