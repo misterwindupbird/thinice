@@ -639,8 +639,6 @@ class Game:
             
         # Check if player was clicked
         if self.player and clicked_hex == self.player.current_hex and clicked_hex.state == HexState.SOLID:
-            # Create floating text for STOMP action
-            self.add_floating_text("STOMP!", self.player.current_hex.center, (255, 0, 0))
 
             # Apply screen shake effect
             self.start_screen_shake(current_time)
@@ -679,12 +677,8 @@ class Game:
                     # Handle state transitions
                     if clicked_hex.state == HexState.SOLID:
                         clicked_hex.crack(neighbors=self.get_hex_neighbors(clicked_hex))
-                        # Create floating text for CRACK action
-                        self.add_floating_text("CRACK!", clicked_hex.center, (255, 70, 70))
                     elif clicked_hex.state == HexState.CRACKED:
                         clicked_hex.break_ice()
-                        # Create floating text for BREAK action
-                        self.add_floating_text("BREAK!", clicked_hex.center, (255, 30, 30))
                 case "enemy":
                     # Create an enemy if there isn't one on the hex
                     if not self._hex_has_entity(clicked_hex):
@@ -763,7 +757,6 @@ class Game:
                 enemy.pushed(target_hex, push_current_time)
             
             # Add floating text for PUSH
-            self.add_floating_text("PUSH", enemy.current_hex.center, (255, 0, 0))
             self.start_screen_shake(push_current_time, intensity=3, duration=.1)
 
         if do_attack:
@@ -961,9 +954,6 @@ class Game:
             launch_hex.crack([])
         elif launch_hex.state == HexState.CRACKED:
             launch_hex.break_ice()
-        
-        # Add floating text for LEAP
-        self.add_floating_text("JUMP!", self.player.current_hex.center, (255, 50, 50))
         
         # Define callback for when jump animation completes
         def on_jump_complete():
