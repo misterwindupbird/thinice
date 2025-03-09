@@ -6,7 +6,7 @@ import logging
 
 # Configure logging
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.WARN,
     format='%(module)s:%(lineno)d %(levelname)s %(asctime)s: %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S',
     handlers=[
