@@ -25,11 +25,12 @@ from ..config.settings import worldgen, game_settings, game_over_messages, healt
 logging.info("Logging test: Game started")
 
 HEART_CACHE = dict()
+DEBUG_AREA_NAVIGATION = False
 
 class Area:
     """Stores the state of a 21x15 area when it's not active."""
     
-    def __init__(self):
+    def __init__(self, enemies):
         # Store hex states and colors
         self.hex_states = [[None for _ in range(settings.hex_grid.GRID_HEIGHT)] 
                           for _ in range(settings.hex_grid.GRID_WIDTH)]
@@ -43,7 +44,7 @@ class Area:
         self.cracked_hex_data = {}  # Key: (x, y), Value: dict of hex properties for CRACKED hexes
         
         # Just store enemy count, not their positions
-        self.enemy_count = 0
+        self.enemy_count = enemies
         
         # Track if this area has been generated yet
         self.generated = False
@@ -115,8 +116,11 @@ class Game:
         # Initialize supergrid
         self.supergrid_size = worldgen.SUPERGRID_SIZE
         self.supergrid_position = [7, 7]  # Start in middle of supergrid
-        self.areas = [[Area() for _ in range(self.supergrid_size)] 
-                     for _ in range(self.supergrid_size)]
+
+        # use Chebyshev distance for the base number of enemies
+        self.areas = [[Area(max(abs(x-self.supergrid_position[0]), abs(y-self.supergrid_position[1])) + 1)
+                       for x in range(self.supergrid_size)]
+                       for y in range(self.supergrid_size)]
         
         # Generate the entire world
         world_generator = WorldGenerator(self)
@@ -413,14 +417,15 @@ class Game:
                             running = False
                         elif event.key in (pygame.K_LSHIFT, pygame.K_RSHIFT):
                             self.shift_pressed = True
-                        elif event.key == pygame.K_LEFT:
-                            self.navigate_area(-1, 0)
-                        elif event.key == pygame.K_RIGHT:
-                            self.navigate_area(1, 0)
-                        elif event.key == pygame.K_UP:
-                            self.navigate_area(0, -1)
-                        elif event.key == pygame.K_DOWN:
-                            self.navigate_area(0, 1)
+                        elif DEBUG_AREA_NAVIGATION:
+                            if event.key == pygame.K_LEFT:
+                                self.navigate_area(-1, 0)
+                            elif event.key == pygame.K_RIGHT:
+                                self.navigate_area(1, 0)
+                            elif event.key == pygame.K_UP:
+                                self.navigate_area(0, -1)
+                            elif event.key == pygame.K_DOWN:
+                                self.navigate_area(0, 1)
                     elif event.type == pygame.KEYUP:
                         if event.key in (pygame.K_LSHIFT, pygame.K_RSHIFT):
                             self.shift_pressed = False
@@ -458,6 +463,9 @@ class Game:
         Returns:
             List of valid jump target hexes
         """
+        if player_hex.state == HexState.LAND:
+            return []
+
         # Get all neighbors of the player
         neighbors = self.get_hex_neighbors(player_hex)
         
@@ -1181,10 +1189,98 @@ class Game:
         # Save enemy count
         area.enemy_count = len(self.enemies)
 
+    def navigate_area(self, dx=0, dy=0):
+        """Navigate to a different area in the supergrid.
+
+        Args:
+            dx: Change in x position (-1, 0, 1)
+            dy: Change in y position (-1, 0, 1)
+        """
+        # Save current area state
+        self.save_current_area()
+
+        # Update supergrid position, ensuring we stay within bounds
+        new_x = self.supergrid_position[0] + dx
+        new_y = self.supergrid_position[1] + dy
+
+        if new_x < 0 or new_x >= self.supergrid_size or new_y < 0 or new_y >= self.supergrid_size:
+            self.show_text_screen(victory=True)
+            pygame.quit()
+            sys.exit()
+
+        # If position hasn't changed, we're at the edge of the world
+        if new_x == self.supergrid_position[0] and new_y == self.supergrid_position[1]:
+            return False
+
+        # Update position
+        self.supergrid_position[0] = new_x
+        self.supergrid_position[1] = new_y
+
+        # Clear current entities
+        # Clear enemies
+        for enemy in self.enemies:
+            enemy.kill()  # Remove from all sprite groups
+        self.enemies = []
+        if hasattr(self, 'enemy_sprites'):
+            self.enemy_sprites.empty()
+
+        # Clear ice fragment sprites
+        if hasattr(self, 'all_sprites'):
+            for sprite in list(self.all_sprites):
+                if hasattr(sprite, '__class__') and sprite.__class__.__name__ == 'IceFragment':
+                    sprite.kill()
+
+        # Reset all hexes to clear any crack data
+        # BUT don't clear fragment sprites or broken surfaces
+        for row in self.hexes:
+            for hex in row:
+                if hex:
+                    # Clear cracks only for now - we'll restore them properly in _restore_area
+                    hex.cracks = []
+
+        # Always restore the area (all areas should be generated)
+        self._restore_area()
+
+        # Reset player position
+        if self.player:
+            if hasattr(self, 'player_sprite'):
+                self.player_sprite.empty()
+            if hasattr(self, 'all_sprites'):
+                self.all_sprites.remove(self.player)
+
+        match dx:
+            case -1:
+                x = hex_grid.GRID_WIDTH - 2
+            case 0:
+                x = self.player.current_hex.grid_x
+            case 1:
+                x = 1
+            case _:
+                raise ValueError
+        match dy:
+            case -1:
+                y = hex_grid.GRID_HEIGHT - (3 if self.player.current_hex.grid_x % 2 == 0 else 3)
+            case 0:
+                y = self.player.current_hex.grid_y
+            case 1:
+                y = 1
+            case _:
+                raise ValueError
+
+        self.player = self._init_player(self.hexes[x][y])
+
+        logging.info(f"Navigated to supergrid position: {self.supergrid_position}")
+        logging.debug(f"Positioned player at {self.player.current_hex}")
+
+        self.spawn_enemies()
+
+        return True
+
     def _restore_area(self):
         """Restore the current area state."""
+
         area = self.areas[self.supergrid_position[0]][self.supergrid_position[1]]
-        
+
         # Only restore if the area has been generated before
         if not area.generated:
             return
@@ -1252,7 +1348,8 @@ class Game:
     def spawn_enemies(self):
         # add some enemies
         enemy_positions = set()
-        enemies_to_spawn = 1 # area.enemy_count if area.enemy_count else 6
+        enemies_to_spawn = self.areas[self.supergrid_position[0]][self.supergrid_position[1]].enemy_count
+
         while enemies_to_spawn > 0:
             pack_size = min(random.randint(2, 6), enemies_to_spawn)
             pack_positions = []
@@ -1324,92 +1421,7 @@ class Game:
                     queue.append((nx, ny))
 
 
-    def navigate_area(self, dx=0, dy=0):
-        """Navigate to a different area in the supergrid.
-        
-        Args:
-            dx: Change in x position (-1, 0, 1)
-            dy: Change in y position (-1, 0, 1)
-        """
-        # Save current area state
-        self.save_current_area()
-        
-        # Update supergrid position, ensuring we stay within bounds
-        new_x = self.supergrid_position[0] + dx
-        new_y = self.supergrid_position[1] + dy
 
-        if new_x < 0 or new_x >= self.supergrid_size or new_y < 0 or new_y >= self.supergrid_size:
-            self.show_text_screen(victory=True)
-            pygame.quit()
-            sys.exit()
-
-        # If position hasn't changed, we're at the edge of the world
-        if new_x == self.supergrid_position[0] and new_y == self.supergrid_position[1]:
-            return False
-        
-        # Update position
-        self.supergrid_position[0] = new_x
-        self.supergrid_position[1] = new_y
-        
-        # Clear current entities
-        # Clear enemies
-        for enemy in self.enemies:
-            enemy.kill()  # Remove from all sprite groups
-        self.enemies = []
-        if hasattr(self, 'enemy_sprites'):
-            self.enemy_sprites.empty()
-        
-        # Clear ice fragment sprites
-        if hasattr(self, 'all_sprites'):
-            for sprite in list(self.all_sprites):
-                if hasattr(sprite, '__class__') and sprite.__class__.__name__ == 'IceFragment':
-                    sprite.kill()
-        
-        # Reset all hexes to clear any crack data
-        # BUT don't clear fragment sprites or broken surfaces
-        for row in self.hexes:
-            for hex in row:
-                if hex:
-                    # Clear cracks only for now - we'll restore them properly in _restore_area
-                    hex.cracks = []
-        
-        # Always restore the area (all areas should be generated)
-        self._restore_area()
-
-        # Reset player position
-        if self.player:
-            if hasattr(self, 'player_sprite'):
-                self.player_sprite.empty()
-            if hasattr(self, 'all_sprites'):
-                self.all_sprites.remove(self.player)
-
-        match dx:
-            case -1:
-                x = hex_grid.GRID_WIDTH - 2
-            case 0:
-                x = self.player.current_hex.grid_x
-            case 1:
-                x = 1
-            case _:
-                raise ValueError
-        match dy:
-            case -1:
-                y = hex_grid.GRID_HEIGHT - (3 if self.player.current_hex.grid_x % 2 == 0 else 3)
-            case 0:
-                y = self.player.current_hex.grid_y
-            case 1:
-                y = 1
-            case _:
-                raise ValueError
-
-        self.player = self._init_player(self.hexes[x][y])
-
-        logging.info(f"Navigated to supergrid position: {self.supergrid_position}")
-        logging.debug(f"Positioned player at {self.player.current_hex}")
-
-        self.spawn_enemies()
-
-        return True
 
     def display_message(self, message: str) -> None:
         """Displays a message in a white box with drop shadow until user clicks.
