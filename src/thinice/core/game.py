@@ -140,7 +140,7 @@ class Game:
         self.health_restore = None
         
         # Initialize sprite groups (moved up before _init_hex_grid)
-        self.all_sprites = pygame.sprite.Group()
+        self.all_sprites = pygame.sprite.LayeredUpdates()
         self.player_sprite = pygame.sprite.GroupSingle()
         self.enemy_sprites = pygame.sprite.Group()
         self.health_restore_sprite = pygame.sprite.GroupSingle()

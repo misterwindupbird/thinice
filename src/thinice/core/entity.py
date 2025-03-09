@@ -364,7 +364,6 @@ class Entity(pygame.sprite.Sprite, ABC):
                 self.animation_type = "none"
 
 
-
 class Player(Entity):
     """Player entity that can move between hex tiles."""
 
@@ -380,7 +379,7 @@ class Player(Entity):
             animation_manager: The animation manager
         """
         super().__init__(start_hex, animation_manager, 'player_token.png')
-
+        self._layer = 2
         self.game_over_callback = game_over_callback
 
     def jump(self, target_hex, current_time):
@@ -466,6 +465,7 @@ class Wolf(Entity):
                          token='wolf_token.png')
 
         self.animation_type = "none"  # Track the type of animation: "none", "move", "jump", "sprint"
+        self._layer = 1
 
     def pushed(self, target_hex: Hex, current_time: float, on_complete: Optional[Callable] = None) -> None:
         """Start pushed animation when the wolf is pushed by the player.
