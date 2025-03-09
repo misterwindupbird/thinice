@@ -95,26 +95,26 @@ class WorldGenerationConfig:
 game_over_messages = [
     "You collapse into the snow, breath steaming. The last thing you see is not teeth, but eyes—calculating, expectant. They were always waiting for you.",
     "The ice shatters beneath you, but you do not fall. A dozen hungry mouths close in, and you finally understand: these were never wolves.",
-    "They circle in silence, watching. Not hunger, not instinct—recognition. You were never meant to leave this place.",
+    "They circle in silence, watching. Not hunger, not instinct--recognition. You were never meant to leave this place.",
     "As your blood stains the ice, your last thought is not fear, but memory. You've done this before.",
     "The beasts hesitate, just for a moment. Not mercy—doubt. Then the snow swallows your screams.",
     "You fought. You ran. You broke the ice. It was never enough. It was never going to be enough.",
     "The storm howls. The ice groans. The shapes in the dark tilt their heads, listening. You had almost made it.",
     "You die in the snow, the cold stealing your last breath. But the ice does not keep the dead for long.",
     "They move in perfect unison, too perfect. You should have realized sooner. You should have remembered.",
-    "Your vision fades as the pack descends. And in the final moment, you see it—the flicker of something familiar beneath their skins."
+    "Your vision fades as the pack descends. And in the final moment, you see it--the flicker of something familiar beneath their skins."
 ]
 
 health_restore_messages = [
     "A handprint on a frozen tree. The fingers are too long. Or maybe the ice stretched them.",
     "A campfire, long dead. Around it, small depressions in the snow. Someone sat here, waiting.",
     "A name, carved into bark. The cuts are deep, frantic. The snow has almost hidden it.",
-    "A child’s footprints, leading nowhere. The last step is just… gone.",
+    "A child’s footprints, leading nowhere. The last step is just... gone.",
     "A rope, snapped and stiff with frost. One end disappears into the snow.",
     "A message, scratched into ice: ‘Hold on.’ Below it, claw marks.",
     "A road sign, half-buried. It points nowhere.",
     "You find a single shoe. There is still a foot in it.",
-    "The sky shifts. Not clouds—something behind them.",
+    "The sky shifts. Not clouds--something behind them.",
     "A metal dog tag. The name is yours. The date is wrong.",
     "A scarf, tangled in dead reeds. It smells of smoke and something you cannot place.",
     "A whistle, still looped around a frozen neck. You blow it. Nothing answers.",

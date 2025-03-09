@@ -27,6 +27,11 @@ logging.info("Logging test: Game started")
 HEART_CACHE = dict()
 DEBUG_AREA_NAVIGATION = False
 
+pygame.font.init()
+font_path = str(Path(__file__).parents[1] / "fonts/alagard.ttf")
+game_font_title = pygame.font.Font(font_path, 36)
+game_font_body = pygame.font.Font(font_path, 24)
+
 class Area:
     """Stores the state of a 21x15 area when it's not active."""
     
@@ -413,11 +418,11 @@ class Game:
                             if self.game_state == GameState.PLAYER and not self.animation_manager.blocking_animations > 0:
                                 self.show_move_overlay = not self.show_move_overlay
                     elif event.type == pygame.KEYDOWN:
-                        if event.key == pygame.K_ESCAPE:
-                            running = False
-                        elif event.key in (pygame.K_LSHIFT, pygame.K_RSHIFT):
-                            self.shift_pressed = True
-                        elif DEBUG_AREA_NAVIGATION:
+                        # if event.key == pygame.K_ESCAPE:
+                        #     running = False
+                        # elif event.key in (pygame.K_LSHIFT, pygame.K_RSHIFT):
+                        #     self.shift_pressed = True
+                        if DEBUG_AREA_NAVIGATION:
                             if event.key == pygame.K_LEFT:
                                 self.navigate_area(-1, 0)
                             elif event.key == pygame.K_RIGHT:
@@ -426,9 +431,9 @@ class Game:
                                 self.navigate_area(0, -1)
                             elif event.key == pygame.K_DOWN:
                                 self.navigate_area(0, 1)
-                    elif event.type == pygame.KEYUP:
-                        if event.key in (pygame.K_LSHIFT, pygame.K_RSHIFT):
-                            self.shift_pressed = False
+                    # elif event.type == pygame.KEYUP:
+                    #     if event.key in (pygame.K_LSHIFT, pygame.K_RSHIFT):
+                    #         self.shift_pressed = False
                 
                 self._draw(current_time)
                 pygame.display.flip()
@@ -1322,8 +1327,7 @@ class Game:
         # Setup
         screen_width, screen_height = self.screen.get_size()
         clock = pygame.time.Clock()
-        font = pygame.font.SysFont(None, 30)
-        
+
         # Calculate box dimensions
         padding = 40
         wrapped_text = textwrap.wrap(message, width=40)  # Wrap text to fit nicely
@@ -1418,7 +1422,7 @@ class Game:
             # Draw text
             if alpha > 128:  # Only start drawing text once the box is somewhat visible
                 for i, line in enumerate(wrapped_text):
-                    text_surface = font.render(line, True, (0, 0, 0))
+                    text_surface = game_font_body.render(line, True, (0, 0, 0))
                     text_alpha = min(255, int(510 * (elapsed / fade_duration)) - 255)
                     text_surface.set_alpha(text_alpha)
                     text_rect = text_surface.get_rect(
@@ -1435,9 +1439,7 @@ class Game:
         # Setup
         screen_width, screen_height = self.screen.get_size()
         clock = pygame.time.Clock()
-        font_title = pygame.font.SysFont(None, 36, italic=True)
-        font_body = pygame.font.SysFont(None, 28)
-        
+
         # Introduction text
         if victory:
             text = [
@@ -1463,19 +1465,19 @@ class Game:
             text = [
                 "On Thin Ice",
                 "",
-                "The ice is fragile. The water is deathly cold.",
+                "The ice is fragile. The water is cold.",
                 "",
-                "MOVE one hex in any direction. This is safe.",
-                "ATTACK an adjacent enemy. This will only push them back.",
-                "JUMP two hexes in any direction. This will damage the ice you jump from and land on.",
-                "STOMP on your own hex to damage it and everything around it. You cannot stomp cracked ice.",
-                "SLIDE exactly three squares on uncracked ice and knock back enemies.",
+                "MOVE one hex in any direction.",
+                "PUSH an adjacent enemy. Where they land matters.",
+                "JUMP two hexes in any direction. This will damage the ice beneath.",
+                "SLIDE exactly three hexes on uncracked ice and knock back enemies.",
+                "STOMP on your own hex to damage everything around. You cannot stomp cracked ice.",
                 "",
-                "When on land you can only MOVE and ATTACK. There is no difference in the land terrains.",
+                "When on land you can only MOVE and ATTACK.",
                 "",
-                "RIGHT-CLICK to show your available moves.",
+                "RIGHT-CLICK any time to show your available moves.",
                 "",
-                "Seven screens from the start is safety.",
+                "SEVEN SCREENS from the start in any direction is safety.",
                 "",
                 "You are being hunted."
             ]
@@ -1508,7 +1510,7 @@ class Game:
             
             # Draw title (first line) with different formatting
             title_line = text[0]
-            title_surface = font_title.render(title_line, True, (0, 0, 0))
+            title_surface = game_font_title.render(title_line, True, (0, 0, 0))
             title_surface.set_alpha(text_alpha)
             title_rect = title_surface.get_rect(center=(screen_width // 2, y_offset))
             self.screen.blit(title_surface, title_rect)
@@ -1517,7 +1519,7 @@ class Game:
             # Draw remaining lines
             for i, line in enumerate(text[1:]):
                 if line:  # Skip empty lines in rendering but add space
-                    text_surface = font_body.render(line, True, (0, 0, 0))
+                    text_surface = game_font_body.render(line, True, (0, 0, 0))
                     text_surface.set_alpha(text_alpha)
                     text_rect = text_surface.get_rect(center=(screen_width // 2, y_offset))
                     self.screen.blit(text_surface, text_rect)
@@ -1526,7 +1528,7 @@ class Game:
             # Once we've finished fading in, show a prompt to continue
             if fade_progress >= 1.0:
                 done_fading = True
-                continue_text = font_body.render("Click anywhere to continue...", True, (100, 100, 100))
+                continue_text = game_font_body.render("Click anywhere to continue...", True, (100, 100, 100))
                 continue_rect = continue_text.get_rect(center=(screen_width // 2, screen_height - 100))
                 self.screen.blit(continue_text, continue_rect)
             
@@ -1555,7 +1557,6 @@ class Game:
         text_fade_duration = 500  # 'Game Over' fade-in time (0.5 seconds)
 
         clock = pygame.time.Clock()
-        font = pygame.font.SysFont(None, 40, italic=True)
         screen_width, screen_height = self.screen.get_size()
 
         # **Randomly pick a Game Over message**
@@ -1612,7 +1613,7 @@ class Game:
             y_offset = screen_height // 2 - (len(wrapped_text) * 30)  # Center vertically
 
             for i, line in enumerate(wrapped_text):
-                text_surface = font.render(line, True, (0, 0, 0))
+                text_surface = game_font_body.render(line, True, (0, 0, 0))
                 text_surface.set_alpha(text_alpha)
                 text_rect = text_surface.get_rect(center=(screen_width // 2, y_offset + i * 50))
                 self.screen.blit(text_surface, text_rect)

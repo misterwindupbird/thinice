@@ -10,6 +10,6 @@ pybind11==2.13.6
 pycparser==2.22
 pygame==2.6.1
 scipy==1.15.2
--e git+https://github.com/misterwindupbird/thinice.git@87b61340eb6d6b8f401a0cee19d4f199c8d48e9e#egg=thinice
+-e git+https://github.com/misterwindupbird/thinice.git@b866ecd30d29d76082f82992ac5fcd94de0719db#egg=thinice
 watchdog==6.0.0
 wheel @ file:///opt/homebrew/Cellar/python%403.13/3.13.2/libexec/wheel-0.45.1-py3-none-any.whl#sha256=b9235939e2096903717cb6bfc132267f8a7e46deb2ec3ef9c5e234ea301795d0
