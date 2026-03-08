@@ -73,7 +73,7 @@ class WaterConfig:
 class AnimationConfig:
     """Animation timing configuration."""
     BREAKING_DURATION: float = 0.2
-    CRACKING_DURATION: float = 0.2
+    CRACKING_DURATION: float = 0.7
 
 @dataclass
 class LandConfig:

@@ -549,7 +549,7 @@ class Game:
             neighbors = self.get_hex_neighbors(clicked_hex)
 
             # First, only crack the player's hex if it's SOLID
-            clicked_hex.crack([])  # Empty list since we don't need to check neighbors here
+            clicked_hex.crack([], get_neighbors=self.get_hex_neighbors)  # hex-grid crack tree
             # Schedule the surrounding hexes to crack/break after a delay
             self.schedule_surrounding_hex_effects(clicked_hex, neighbors, current_time)
             return
@@ -578,7 +578,8 @@ class Game:
 
                     # Handle state transitions
                     if clicked_hex.state == HexState.SOLID:
-                        clicked_hex.crack(neighbors=self.get_hex_neighbors(clicked_hex))
+                        clicked_hex.crack(neighbors=self.get_hex_neighbors(clicked_hex),
+                                          get_neighbors=self.get_hex_neighbors)
                     elif clicked_hex.state == HexState.CRACKED:
                         clicked_hex.break_ice()
                 case "enemy":
@@ -682,11 +683,18 @@ class Game:
         # Apply screen shake if active
         shake_offset_x, shake_offset_y = self.apply_screen_shake(current_time)
         
-        # Draw hexes
+        # Draw hexes (first pass: polygons + legacy crack animations)
         for row in self.hexes:
             for hex in row:
                 if hex:
                     hex.draw(draw_surface, current_time)
+
+        # Second pass: draw hex-grid crack trees on top of all polygons so
+        # cracks spanning into neighbouring hexes are never occluded.
+        for row in self.hexes:
+            for hex in row:
+                if hex:
+                    hex.draw_crack_tree(draw_surface)
         
         # Update all sprites
         self.all_sprites.update(current_time)
@@ -829,7 +837,7 @@ class Game:
                     if neighbor.state == HexState.CRACKED and neighbor != self.center_hex_for_effects:
                         neighbors_for_crack.append(neighbor)
                 
-                hex.crack(neighbors_for_crack)  # Pass neighbors to connect cracks
+                hex.crack(neighbors_for_crack, get_neighbors=self.get_hex_neighbors)
             elif hex.state == HexState.CRACKED:
                 hex.break_ice()
 
@@ -864,7 +872,7 @@ class Game:
             in_between.add(launch_hex)
             for ihex in in_between:
                 if ihex.state == HexState.SOLID:
-                    ihex.crack(self.get_hex_neighbors(ihex))
+                    ihex.crack(self.get_hex_neighbors(ihex), get_neighbors=self.get_hex_neighbors)
                 elif ihex.state == HexState.CRACKED and ihex != launch_hex:
                     ihex.break_ice()
         

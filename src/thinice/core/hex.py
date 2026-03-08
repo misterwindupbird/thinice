@@ -10,7 +10,7 @@ from pathlib import Path
 from .animation_manager import AnimationManager
 from .hex_state import HexState
 from .ice_fragment import IceFragment
-from .crack import Crack
+from .crack import Crack, CrackTree
 from ..config.settings import hex_grid, crack as crack_config, water, animation, display
 from ..utils.geometry import (
     Point, 
@@ -47,6 +47,7 @@ class Hex:
         self.edge_points = calculate_edge_points(self.vertices)
         self.state = state
         self.cracks: List[Crack] = []
+        self.crack_tree: Optional[CrackTree] = None
         self.color = color if color else self._init_color()
         self.height = height
         
@@ -210,15 +211,17 @@ class Hex:
         return distance <= hex_grid.RADIUS * 0.95  # Slightly smaller to keep inside visible boundary
     
     
-    def crack(self, neighbors: List['Hex']) -> None:
+    def crack(self, neighbors: List['Hex'], get_neighbors=None) -> None:
         """Initiate cracking of the hex tile.
-        
+
         Args:
             neighbors: List of adjacent hex tiles
+            get_neighbors: Optional callable ``(hex) -> List[Hex]`` for
+                           hex-grid-based crack tree generation.
         """
         if self.state != HexState.SOLID:
             return
-            
+
         # Change to CRACKING state instead of directly to CRACKED
         self.state = HexState.CRACKING
         self.transition_start_time = pygame.time.get_ticks() / 1000.0  # Current time in seconds
@@ -226,7 +229,18 @@ class Hex:
         self.transition_progress = 0.0
         self.animation_manager.blocking_animations += 1
         logging.debug(f'{self.animation_manager.blocking_animations=}')
-        
+
+        # Hex-grid-based crack tree — drawn in a second pass by the game layer
+        if get_neighbors is not None:
+            self.crack_tree = CrackTree(self, get_neighbors)
+            self.pending_cracks = []
+            self.pending_secondary_cracks = []
+            self.cracking_neighbors = neighbors
+            return
+
+        # Legacy edge-based crack generation
+        self.crack_tree = None
+
         # Store neighbors for connecting cracks during animation
         self.cracking_neighbors = neighbors
         
@@ -808,173 +822,121 @@ class Hex:
     
     def _draw_cracking(self, screen: pygame.Surface, current_time: float) -> None:
         """Draw the cracking animation with cracks growing from center outward.
-        
+
         Args:
             screen: Surface to draw on
-            font: Font for text rendering
             current_time: Current game time in seconds
         """
         # Draw base hex
         pygame.draw.polygon(screen, self.color, self.vertices)
-        
-        # Calculate progress for the animation
+
         progress = self.transition_progress
-        
-        # Create a surface for the cracks with masking
+
+        if self.crack_tree is not None:
+            # Hex-grid tree mode: tree is drawn in a second pass by the game
+            # layer so it renders on top of all hex polygons.  Here we only
+            # handle finalisation when the animation completes.
+            if progress >= 1.0:
+                for seg_pts in self.crack_tree.collect_segments():
+                    c = Crack(seg_pts[0])
+                    for pt in seg_pts[1:]:
+                        c.add_point(pt)
+                    self.cracks.append(c)
+            if display.DRAW_OVERLAY:
+                text = display.font.render(f"({self.grid_x},{self.grid_y})", True, hex_grid.TEXT_COLOR)
+                screen.blit(text, text.get_rect(center=self.center))
+            return
+
+        # ── Legacy edge-based animation ────────────────────────────────────
         hex_bounds = self._get_hex_bounds()
-        width = int(hex_bounds[2] - hex_bounds[0] + 20)  # Add padding
-        height = int(hex_bounds[3] - hex_bounds[1] + 20)
+        width    = int(hex_bounds[2] - hex_bounds[0] + 20)
+        height   = int(hex_bounds[3] - hex_bounds[1] + 20)
         offset_x = hex_bounds[0] - 10
         offset_y = hex_bounds[1] - 10
-        
-        # Create a hex mask for clipping
+
         hex_mask_surface = pygame.Surface((width, height), pygame.SRCALPHA)
-        hex_mask_surface.fill((0, 0, 0, 0))  # Start with fully transparent
-        
-        # Draw the hex shape in the mask
+        hex_mask_surface.fill((0, 0, 0, 0))
         local_vertices = [(x - offset_x, y - offset_y) for x, y in self.vertices]
         pygame.draw.polygon(hex_mask_surface, (255, 255, 255, 255), local_vertices)
-        
-        # Create a mask from the hex shape
-        hex_mask = pygame.mask.from_surface(hex_mask_surface)
-        
-        # Create a surface for the cracks
+
         crack_surface = pygame.Surface((width, height), pygame.SRCALPHA)
-        
-        # Track which primary cracks are visible and how far they've grown
+
         primary_crack_progress = {}
-        
-        # Process pending primary cracks based on animation progress
+
         for crack_type, target_hex, end_point in self.pending_cracks:
-            # Only process cracks for this hex (neighbor cracks are handled by the neighbor)
             if crack_type == "self":
-                # Calculate the visible portion of the crack based on progress
-                # Start from center and grow outward
                 start_point = self.center
-                
-                # Calculate total distance
                 dx = end_point[0] - start_point[0]
                 dy = end_point[1] - start_point[1]
                 total_distance = (dx*dx + dy*dy) ** 0.5
-                
-                # Calculate visible distance based on progress
                 visible_distance = total_distance * progress
-                
+
                 if visible_distance > 0:
-                    # Calculate the visible end point
                     t = visible_distance / total_distance
                     visible_end_x = start_point[0] + dx * t
                     visible_end_y = start_point[1] + dy * t
-                    
-                    # Store the progress for this primary crack
                     primary_crack_progress[end_point] = t
-                    
-                    # Draw the visible portion of the crack
                     local_start = (start_point[0] - offset_x, start_point[1] - offset_y)
-                    local_end = (visible_end_x - offset_x, visible_end_y - offset_y)
-                    
-                    # Draw the crack
+                    local_end   = (visible_end_x - offset_x, visible_end_y - offset_y)
                     pygame.draw.line(crack_surface, water.CRACK_COLOR, local_start, local_end, 1)
-        
-        # Process secondary cracks - only show in the second half of the animation
+
         if progress > 0.5 and len(primary_crack_progress) >= 2:
-            # Scale the progress for secondary cracks from 0 to 1 in the second half
             secondary_progress = (progress - 0.5) * 2
-            
+
             for point1, point2, mid_x, mid_y in self.pending_secondary_cracks:
-                # Calculate how far along each primary crack we need to be to see these points
-                # We need to find which primary cracks these points belong to
-                
-                # For each primary crack endpoint
                 for end_point, t_progress in primary_crack_progress.items():
-                    # Calculate the current visible point on this primary crack
                     dx = end_point[0] - self.center[0]
                     dy = end_point[1] - self.center[1]
-                    
-                    # Check if point1 is on this primary crack
-                    t1_on_crack = ((point1[0] - self.center[0]) / dx if dx != 0 else 
+
+                    t1_on_crack = ((point1[0] - self.center[0]) / dx if dx != 0 else
                                   (point1[1] - self.center[1]) / dy if dy != 0 else 0)
-                    
-                    # Check if point2 is on this primary crack
-                    t2_on_crack = ((point2[0] - self.center[0]) / dx if dx != 0 else 
+                    t2_on_crack = ((point2[0] - self.center[0]) / dx if dx != 0 else
                                   (point2[1] - self.center[1]) / dy if dy != 0 else 0)
-                    
-                    # If point1 is on this crack and the crack has grown past it
+
                     if 0 <= t1_on_crack <= 1 and t_progress >= t1_on_crack:
-                        # Draw from point1 towards midpoint based on secondary progress
                         dx1 = mid_x - point1[0]
                         dy1 = mid_y - point1[1]
-                        t1 = secondary_progress
-                        p1_to_mid_x = point1[0] + dx1 * t1
-                        p1_to_mid_y = point1[1] + dy1 * t1
-                        
-                        # Draw the visible portion of the secondary crack
-                        local_p1 = (point1[0] - offset_x, point1[1] - offset_y)
-                        local_p1_to_mid = (p1_to_mid_x - offset_x, p1_to_mid_y - offset_y)
-                        
-                        # Draw the secondary crack
-                        pygame.draw.line(crack_surface, water.CRACK_COLOR, local_p1, local_p1_to_mid, 1)
-                    
-                    # If point2 is on this crack and the crack has grown past it
+                        local_p1      = (point1[0] - offset_x, point1[1] - offset_y)
+                        local_p1_mid  = (point1[0] + dx1 * secondary_progress - offset_x,
+                                         point1[1] + dy1 * secondary_progress - offset_y)
+                        pygame.draw.line(crack_surface, water.CRACK_COLOR, local_p1, local_p1_mid, 1)
+
                     if 0 <= t2_on_crack <= 1 and t_progress >= t2_on_crack:
-                        # Draw from point2 towards midpoint based on secondary progress
                         dx2 = mid_x - point2[0]
                         dy2 = mid_y - point2[1]
-                        t2 = secondary_progress
-                        p2_to_mid_x = point2[0] + dx2 * t2
-                        p2_to_mid_y = point2[1] + dy2 * t2
-                        
-                        # Draw the visible portion of the secondary crack
-                        local_p2 = (point2[0] - offset_x, point2[1] - offset_y)
-                        local_p2_to_mid = (p2_to_mid_x - offset_x, p2_to_mid_y - offset_y)
-                        
-                        # Draw the secondary crack
-                        pygame.draw.line(crack_surface, water.CRACK_COLOR, local_p2, local_p2_to_mid, 1)
-            
-        # If we're fully cracked, add the actual cracks to the hex
+                        local_p2      = (point2[0] - offset_x, point2[1] - offset_y)
+                        local_p2_mid  = (point2[0] + dx2 * secondary_progress - offset_x,
+                                         point2[1] + dy2 * secondary_progress - offset_y)
+                        pygame.draw.line(crack_surface, water.CRACK_COLOR, local_p2, local_p2_mid, 1)
+
         if progress >= 1.0:
-            # Add the actual cracks to this hex and neighbors
             for crack_type, target_hex, end_point in self.pending_cracks:
                 if crack_type == "self":
-                    # Add the actual crack to this hex
                     self.add_straight_crack(end_point)
                 elif crack_type == "neighbor":
-                    # Add the actual crack to the neighbor
                     target_hex.add_straight_crack(end_point)
-            
-            # Add secondary cracks
+
             for point1, point2, mid_x, mid_y in self.pending_secondary_cracks:
-                # Create a secondary crack from point1 to midpoint
                 crack1 = Crack(point1)
                 crack1.extend_to((mid_x, mid_y), crack_config.MIN_SEGMENTS)
                 crack1.is_secondary = True
                 self.cracks.append(crack1)
-                
-                # Create a secondary crack from point2 to midpoint
+
                 crack2 = Crack(point2)
                 crack2.extend_to((mid_x, mid_y), crack_config.MIN_SEGMENTS)
                 crack2.is_secondary = True
                 self.cracks.append(crack2)
-        
-        # Apply the hex mask to the crack surface
-        crack_array = pygame.surfarray.pixels_alpha(crack_surface)
-        hex_mask_array = pygame.surfarray.pixels_alpha(hex_mask_surface)
-        
-        # Only keep cracks where the hex mask is set
+
+        crack_array     = pygame.surfarray.pixels_alpha(crack_surface)
+        hex_mask_array  = pygame.surfarray.pixels_alpha(hex_mask_surface)
         crack_array[:] = numpy.minimum(crack_array, hex_mask_array)
-        
-        # Clean up to release surface lock
-        del crack_array
-        del hex_mask_array
-        
-        # Blit the crack surface onto the screen
+        del crack_array, hex_mask_array
+
         screen.blit(crack_surface, (offset_x, offset_y))
-        
-        # Draw coordinates
+
         if display.DRAW_OVERLAY:
             text = display.font.render(f"({self.grid_x},{self.grid_y})", True, hex_grid.TEXT_COLOR)
-            text_rect = text.get_rect(center=self.center)
-            screen.blit(text, text_rect)
+            screen.blit(text, text.get_rect(center=self.center))
     
     def _draw_cracked(self, screen: pygame.Surface) -> None:
         """Draw the cracked state with thin water-colored hairlines."""
@@ -1031,7 +993,21 @@ class Hex:
             return (x, y)
         
         return None
-    
+
+    def draw_crack_tree(self, screen: pygame.Surface) -> None:
+        """Draw the hex-grid crack tree in a second pass (on top of all polygons).
+
+        Called by the game layer after all hex polygons have been drawn so that
+        crack lines spanning multiple hexes are never occluded by a neighbour's
+        polygon fill.
+        """
+        if self.crack_tree is None:
+            return
+        if self.state == HexState.CRACKING:
+            self.crack_tree.draw(screen, self.transition_progress)
+        elif self.state == HexState.CRACKED:
+            self.crack_tree.draw_complete(screen)
+
     def _draw_breaking(self, screen: pygame.Surface, current_time: float, non_broken_hexes: List['Hex'] = None) -> None:
         """Draw the breaking animation state with widening cracks and separating fragments.
         
