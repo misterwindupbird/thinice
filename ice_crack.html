@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Ice Crack</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #070e1c;
+      width: 100vw; height: 100vh;
+      overflow: hidden;
+      touch-action: none;
+      user-select: none;
+    }
+    canvas { display: block; cursor: crosshair; }
+    #hint {
+      position: fixed;
+      bottom: 28px;
+      left: 50%;
+      transform: translateX(-50%);
+      color: rgba(180, 220, 255, 0.65);
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+      font-size: 15px;
+      letter-spacing: 0.4px;
+      pointer-events: none;
+      transition: opacity 1.2s ease;
+      white-space: nowrap;
+    }
+    #reset-btn {
+      position: fixed;
+      top: 18px;
+      right: 18px;
+      background: rgba(255,255,255,0.12);
+      border: 1px solid rgba(200,230,255,0.25);
+      color: rgba(200,230,255,0.7);
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+      font-size: 13px;
+      padding: 7px 14px;
+      border-radius: 20px;
+      cursor: pointer;
+      letter-spacing: 0.3px;
+      backdrop-filter: blur(4px);
+      -webkit-backdrop-filter: blur(4px);
+    }
+    #reset-btn:active { background: rgba(255,255,255,0.22); }
+  </style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hint">Tap the ice to crack it</div>
+<button id="reset-btn">Reset</button>
+
+<script>
+'use strict';
+
+// ─── Canvas setup ─────────────────────────────────────────────────────────────
+const canvas = document.getElementById('c');
+const ctx    = canvas.getContext('2d');
+const hint   = document.getElementById('hint');
+const resetBtn = document.getElementById('reset-btn');
+
+// ─── Spatial grid (fast nearest-neighbour lookup) ─────────────────────────────
+class SpatialGrid {
+  constructor(cellSize) {
+    this.cs    = cellSize;
+    this.cells = new Map();
+  }
+  _key(x, y) { return `${x / this.cs | 0},${y / this.cs | 0}`; }
+  add(p) {
+    const k = this._key(p.x, p.y);
+    const c = this.cells.get(k);
+    if (c) c.push(p); else this.cells.set(k, [p]);
+  }
+  nearest(x, y, r) {
+    const cr = Math.ceil(r / this.cs);
+    const cx = x / this.cs | 0, cy = y / this.cs | 0;
+    let best = null, bestD2 = r * r;
+    for (let dx = -cr; dx <= cr; dx++) {
+      for (let dy = -cr; dy <= cr; dy++) {
+        const cell = this.cells.get(`${cx+dx},${cy+dy}`);
+        if (!cell) continue;
+        for (const p of cell) {
+          const d2 = (p.x-x)*(p.x-x) + (p.y-y)*(p.y-y);
+          if (d2 < bestD2) { bestD2 = d2; best = p; }
+        }
+      }
+    }
+    return best;
+  }
+  clear() { this.cells.clear(); }
+}
+const sg = new SpatialGrid(20);
+
+// ─── Box-Muller Gaussian random ───────────────────────────────────────────────
+let _spare = null;
+function randN(sigma) {
+  let r;
+  if (_spare !== null) { r = _spare; _spare = null; }
+  else {
+    let u, v, s;
+    do { u = Math.random()*2-1; v = Math.random()*2-1; s = u*u+v*v; }
+    while (s >= 1 || s === 0);
+    const f = Math.sqrt(-2 * Math.log(s) / s);
+    _spare = v * f; r = u * f;
+  }
+  return r * (sigma || 1);
+}
+
+// ─── Config (derived from screen size on init) ────────────────────────────────
+let CFG = {};
+function buildCfg() {
+  const S = Math.min(canvas.width, canvas.height);
+  CFG = {
+    // crack geometry
+    nArms:       { min: 8, max: 13 },
+    stepPx:      5,
+    wander:      0.055,   // angular sigma per step (radians)
+    forkP:       [0.055, 0.028, 0.01],  // fork probability by branch depth
+    maxDepth:    3,
+    connR:       18,      // snap-to-existing radius (px)
+    minForkLen:  22,      // don't fork if remaining len < this
+    // crack length: fraction of min(W,H)
+    maxArmF:     { min: 0.18, max: 0.38 },
+    // animation
+    animMs:      820,
+    easeK:       5.0,
+    flashMs:     380,
+    // visuals — line widths by depth
+    lw:          [2.6, 1.6, 1.0, 0.7],
+    // colours
+    shadowC:     'rgba(3,8,20,0.42)',
+    crackC:      ['rgba(16,32,52,0.93)', 'rgba(12,26,44,0.80)',
+                  'rgba(10,20,38,0.62)', 'rgba(8,16,30,0.42)'],
+    hiliteC:     ['rgba(208,234,252,0.58)', 'rgba(200,228,250,0.30)',
+                  'rgba(190,222,248,0.14)', null],
+  };
+}
+
+// ─── Crack generation ─────────────────────────────────────────────────────────
+// Returns a branch node: { pts:[{x,y,d}], children:[{bd,b}], depth, maxD }
+// 'd' = cumulative distance from the NETWORK ORIGIN along this path.
+function genBranch(sx, sy, angle, maxLen, depth, startD) {
+  const pts      = [{ x: sx, y: sy, d: startD }];
+  const children = [];
+  let cx = sx, cy = sy, a = angle, walked = 0;
+
+  while (walked < maxLen) {
+    a += randN(CFG.wander);
+    const nx = cx + Math.cos(a) * CFG.stepPx;
+    const ny = cy + Math.sin(a) * CFG.stepPx;
+
+    // Hard boundary
+    if (nx < 2 || nx > canvas.width - 2 || ny < 2 || ny > canvas.height - 2) break;
+
+    walked += CFG.stepPx;
+    const totalD = startD + walked;
+
+    // Snap to existing crack from an older network
+    const near = sg.nearest(nx, ny, CFG.connR);
+    if (near) {
+      pts.push({ x: near.x, y: near.y, d: totalD });
+      break;
+    }
+
+    pts.push({ x: nx, y: ny, d: totalD });
+    cx = nx; cy = ny;
+
+    // Random fork
+    const fp = CFG.forkP[Math.min(depth, CFG.forkP.length - 1)] || 0;
+    if (depth < CFG.maxDepth && walked > CFG.minForkLen && Math.random() < fp) {
+      const sign     = Math.random() > 0.5 ? 1 : -1;
+      const fAngle   = a + sign * (Math.PI / 3 + Math.random() * Math.PI / 3);
+      const fMax     = (maxLen - walked) * (0.28 + Math.random() * 0.38);
+      if (fMax > CFG.minForkLen) {
+        children.push({
+          bd: totalD,
+          b: genBranch(cx, cy, fAngle, fMax, depth + 1, totalD)
+        });
+      }
+    }
+  }
+  return { pts, children, depth, maxD: startD + walked };
+}
+
+function genNetwork(ox, oy) {
+  const { nArms, maxArmF } = CFG;
+  const n      = nArms.min + Math.floor(Math.random() * (nArms.max - nArms.min + 1));
+  const step   = Math.PI * 2 / n;
+  const base   = Math.random() * step;
+  const S      = Math.min(canvas.width, canvas.height);
+  const arms   = [];
+
+  for (let i = 0; i < n; i++) {
+    const angle  = base + step * i + randN(0.11);
+    const maxLen = (maxArmF.min + Math.random() * (maxArmF.max - maxArmF.min)) * S;
+    arms.push(genBranch(ox, oy, angle, maxLen, 0, 0));
+  }
+
+  // Register all points into spatial grid for future-network connections
+  function register(br) {
+    for (const p of br.pts) sg.add(p);
+    for (const c of br.children) register(c.b);
+  }
+  arms.forEach(register);
+
+  return { arms, ox, oy };
+}
+
+// ─── Drawing ──────────────────────────────────────────────────────────────────
+// dc is a mutable reference to the active drawing context.
+// We swap it to an offscreen canvas when finalising networks.
+let dc = ctx;
+
+function drawSeg(x1, y1, x2, y2, depth) {
+  const d   = Math.min(depth, CFG.lw.length - 1);
+  const lw  = CFG.lw[d];
+  const ddx = x2 - x1, ddy = y2 - y1;
+  const len = Math.sqrt(ddx * ddx + ddy * ddy);
+  if (len < 0.5) return;
+  const px = -ddy / len, py = ddx / len;   // perpendicular unit vector
+
+  // Shadow (shifted down-right for depth illusion)
+  dc.beginPath();
+  dc.moveTo(x1 + 1, y1 + 1.5);
+  dc.lineTo(x2 + 1, y2 + 1.5);
+  dc.strokeStyle = CFG.shadowC;
+  dc.lineWidth   = lw + 2.2;
+  dc.lineCap     = 'round';
+  dc.stroke();
+
+  // Dark crack body
+  dc.beginPath();
+  dc.moveTo(x1, y1);
+  dc.lineTo(x2, y2);
+  dc.strokeStyle = CFG.crackC[d];
+  dc.lineWidth   = lw;
+  dc.stroke();
+
+  // Ice-blue highlight on one edge (gives 3-D crack-in-ice feel)
+  const hi = CFG.hiliteC[d];
+  if (hi) {
+    dc.beginPath();
+    dc.moveTo(x1 + px * 1.4, y1 + py * 1.4);
+    dc.lineTo(x2 + px * 1.4, y2 + py * 1.4);
+    dc.strokeStyle = hi;
+    dc.lineWidth   = 1;
+    dc.stroke();
+  }
+}
+
+function drawBranch(br, frontD, showTip) {
+  const { pts, children, depth } = br;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p1 = pts[i], p2 = pts[i + 1];
+    if (p1.d > frontD) break;
+
+    let ex = p2.x, ey = p2.y;
+    const partial = p2.d > frontD;
+    if (partial) {
+      const t = (frontD - p1.d) / (p2.d - p1.d);
+      ex = p1.x + (p2.x - p1.x) * t;
+      ey = p1.y + (p2.y - p1.y) * t;
+    }
+
+    drawSeg(p1.x, p1.y, ex, ey, depth);
+
+    // Glowing tip at the active wavefront
+    if (partial && showTip && depth <= 1) {
+      dc.beginPath();
+      dc.arc(ex, ey, depth === 0 ? 3.5 : 2, 0, Math.PI * 2);
+      dc.fillStyle = 'rgba(235,252,255,0.78)';
+      dc.fill();
+    }
+  }
+  for (const { bd, b } of children) {
+    if (bd <= frontD) drawBranch(b, frontD, showTip);
+  }
+}
+
+function drawNetwork(net, frontD, showTip) {
+  for (const arm of net.arms) drawBranch(arm, frontD, showTip);
+}
+
+function drawFlash(ox, oy, elapsedMs) {
+  if (elapsedMs >= CFG.flashMs) return;
+  const t = elapsedMs / CFG.flashMs;
+  const r = 10 + 24 * t;
+  const a = (1 - t) * 0.8;
+  const g = dc.createRadialGradient(ox, oy, 0, ox, oy, r);
+  g.addColorStop(0,    `rgba(255,255,255,${a})`);
+  g.addColorStop(0.4,  `rgba(220,242,255,${a * 0.5})`);
+  g.addColorStop(1,    'rgba(200,235,255,0)');
+  dc.beginPath();
+  dc.arc(ox, oy, r, 0, Math.PI * 2);
+  dc.fillStyle = g;
+  dc.fill();
+}
+
+// ─── Offscreen cache for completed networks ───────────────────────────────────
+let bgCanvas = document.createElement('canvas');
+let bgCtx    = bgCanvas.getContext('2d');
+let iceImg   = null;
+const completedNets = [];
+
+function rebuildBg() {
+  bgCanvas.width  = canvas.width;
+  bgCanvas.height = canvas.height;
+  if (iceImg) bgCtx.drawImage(iceImg, 0, 0);
+}
+
+function finaliseNet(net) {
+  completedNets.push(net);
+  // Paint permanently onto bgCanvas so we don't redraw each frame
+  dc = bgCtx;
+  drawNetwork(net, Infinity, false);
+  dc = ctx;
+}
+
+// ─── Ice texture ──────────────────────────────────────────────────────────────
+function makeIceTex() {
+  const off = document.createElement('canvas');
+  off.width  = canvas.width;
+  off.height = canvas.height;
+  const oc = off.getContext('2d');
+  const W = off.width, H = off.height;
+
+  // Base: soft radial gradient — bright centre, cooler edges
+  const gr = oc.createRadialGradient(W * 0.4, H * 0.35, 0, W * 0.5, H * 0.5, W * 0.75);
+  gr.addColorStop(0,    '#F3F9FF');
+  gr.addColorStop(0.45, '#E3F2FF');
+  gr.addColorStop(1,    '#C8E5FF');
+  oc.fillStyle = gr;
+  oc.fillRect(0, 0, W, H);
+
+  // Pixel-level noise for ice grain
+  const id = oc.getImageData(0, 0, W, H);
+  const d  = id.data;
+  for (let i = 0; i < d.length; i += 4) {
+    const v = (Math.random() - 0.5) * 18;
+    d[i]   = Math.max(0, Math.min(255, d[i]   + v));
+    d[i+1] = Math.max(0, Math.min(255, d[i+1] + v * 0.8));
+    d[i+2] = Math.max(0, Math.min(255, d[i+2] + v * 0.55));
+  }
+  oc.putImageData(id, 0, 0);
+
+  // Frost crystal filigree (subtle background structure)
+  oc.save();
+  for (let i = 0; i < 260; i++) {
+    const sx    = Math.random() * W;
+    const sy    = Math.random() * H;
+    const ang   = Math.random() * Math.PI;
+    const len   = 16 + Math.random() * 80;
+    const alpha = 0.04 + Math.random() * 0.07;
+
+    oc.beginPath();
+    oc.moveTo(sx, sy);
+    oc.lineTo(sx + Math.cos(ang) * len, sy + Math.sin(ang) * len);
+    oc.strokeStyle = `rgba(150,200,235,${alpha})`;
+    oc.lineWidth   = 0.4 + Math.random() * 0.5;
+    oc.stroke();
+
+    // Feather branches off each crystal line
+    const nb = 2 + Math.floor(Math.random() * 3);
+    for (let j = 0; j < nb; j++) {
+      const t  = (j + 1) / (nb + 1);
+      const bx = sx + Math.cos(ang) * len * t;
+      const by = sy + Math.sin(ang) * len * t;
+      const ba = ang + Math.PI * 0.5 * (Math.random() > 0.5 ? 1 : -1) + (Math.random() - 0.5) * 0.5;
+      const bl = 5 + Math.random() * 24;
+      oc.beginPath();
+      oc.moveTo(bx, by);
+      oc.lineTo(bx + Math.cos(ba) * bl, by + Math.sin(ba) * bl);
+      oc.strokeStyle = `rgba(150,200,235,${alpha * 0.55})`;
+      oc.lineWidth   = 0.4;
+      oc.stroke();
+    }
+  }
+  oc.restore();
+  return off;
+}
+
+// ─── Main render loop ─────────────────────────────────────────────────────────
+const activeAnims = [];   // { net, t0 }
+
+function loop(ts) {
+  requestAnimationFrame(loop);
+
+  // bgCanvas already contains ice + all completed networks
+  ctx.drawImage(bgCanvas, 0, 0);
+  dc = ctx;
+
+  const toFinalise = [];
+  for (const anim of activeAnims) {
+    const elapsed = ts - anim.t0;
+    const t       = Math.min(1, elapsed / CFG.animMs);
+    // Exponential ease-out: fast burst, graceful tail
+    const eased   = 1 - Math.exp(-CFG.easeK * t);
+    // Scale frontD to the longest possible arm distance
+    const S       = Math.min(canvas.width, canvas.height);
+    const maxD    = CFG.maxArmF.max * S * 1.5;   // a bit beyond max arm so tail animates
+    const frontD  = eased * maxD;
+
+    drawNetwork(anim.net, frontD, true);
+    drawFlash(anim.net.ox, anim.net.oy, elapsed);
+
+    if (t >= 1) toFinalise.push(anim);
+  }
+
+  for (const a of toFinalise) {
+    activeAnims.splice(activeAnims.indexOf(a), 1);
+    finaliseNet(a.net);
+  }
+}
+
+// ─── Input ────────────────────────────────────────────────────────────────────
+let hinted = false;
+
+function tap(x, y) {
+  if (!hinted) {
+    hint.style.opacity = '0';
+    hinted = true;
+  }
+  const net = genNetwork(x, y);
+  activeAnims.push({ net, t0: performance.now() });
+}
+
+canvas.addEventListener('click', e => tap(e.clientX, e.clientY));
+canvas.addEventListener('touchstart', e => {
+  e.preventDefault();
+  for (const t of e.changedTouches) tap(t.clientX, t.clientY);
+}, { passive: false });
+
+function doReset() {
+  activeAnims.length = 0;
+  completedNets.length = 0;
+  sg.clear();
+  rebuildBg();
+  bgCtx.drawImage(iceImg, 0, 0);
+  hinted = false;
+  hint.style.opacity = '1';
+}
+
+resetBtn.addEventListener('click',     doReset);
+resetBtn.addEventListener('touchstart', e => { e.stopPropagation(); doReset(); });
+document.addEventListener('keydown', e => { if (e.key === 'r' || e.key === 'R') doReset(); });
+
+// ─── Init ─────────────────────────────────────────────────────────────────────
+function init() {
+  canvas.width  = window.innerWidth;
+  canvas.height = window.innerHeight;
+  buildCfg();
+  iceImg = makeIceTex();
+  rebuildBg();
+  bgCtx.drawImage(iceImg, 0, 0);
+  requestAnimationFrame(loop);
+}
+
+window.addEventListener('resize', () => {
+  canvas.width  = window.innerWidth;
+  canvas.height = window.innerHeight;
+  buildCfg();
+  iceImg = makeIceTex();
+  // Cracks are lost on resize — acceptable for a demo
+  activeAnims.length   = 0;
+  completedNets.length = 0;
+  sg.clear();
+  rebuildBg();
+  bgCtx.drawImage(iceImg, 0, 0);
+});
+
+init();
+</script>
+</body>
+</html>
