@@ -80,9 +80,10 @@ const HILITE_C = [
   'rgba(190,222,248,0.15)', null,
 ];
 
-const ANIM_MS  = 900;   // total animation duration (ms)
-const EASE_K   = 4.6;   // exponential ease constant
-const FLASH_MS = 400;   // impact flash duration (ms)
+const ANIM_MS     = 900;   // total animation duration (ms)
+const EASE_K      = 4.6;   // exponential ease constant
+const FLASH_MS    = 400;   // impact flash duration (ms)
+const HEX_GLOW_MS = 600;   // per-hex glow fade duration (ms)
 
 // ─── Globals ──────────────────────────────────────────────────────────────────
 let W, H;        // canvas dimensions
@@ -234,9 +235,11 @@ function jaggedLine(x1, y1, x2, y2, nSegs) {
 // Build a branching tree of crack segments rooted at originHex.
 // Each edge: { pts, startD, endD, depth, child }
 //   startD/endD = cumulative distance from origin along the crack network.
-// Returns { root, maxD, ox, oy }
+// Returns { root, maxD, ox, oy, reached }
+//   reached: [{dist, hex}] — every hex the tree visits, with arrival distance
 function genHexTree(originHex) {
-  const used = new Set([hexKey(originHex.q, originHex.r)]);
+  const used    = new Set([hexKey(originHex.q, originHex.r)]);
+  const reached = [{ dist: 0, hex: originHex }];  // origin reached at dist 0
 
   function treeMaxD(node) {
     let m = 0;
@@ -289,8 +292,10 @@ function genHexTree(originHex) {
       const nSegs  = Math.max(4, Math.round(segLen / 10));
       const pts    = jaggedLine(hex.cx, hex.cy, target.cx, target.cy, nSegs);
 
-      const child = makeNode(target, parentDist + segLen, depth + 1);
-      node.edges.push({ pts, depth, startD: parentDist, endD: parentDist + segLen, child });
+      const arrivalDist = parentDist + segLen;
+      reached.push({ dist: arrivalDist, hex: target });
+      const child = makeNode(target, arrivalDist, depth + 1);
+      node.edges.push({ pts, depth, startD: parentDist, endD: arrivalDist, child });
       count++;
     }
     return node;
@@ -299,7 +304,49 @@ function genHexTree(originHex) {
   const root = makeNode(originHex, 0, 0);
   const maxD = treeMaxD(root) || (R * SQ3);  // fallback: one hex width
 
-  return { root, maxD, ox: originHex.cx, oy: originHex.cy };
+  return { root, maxD, ox: originHex.cx, oy: originHex.cy, reached };
+}
+
+// ─── Hex glow effect ─────────────────────────────────────────────────────────
+
+// Invert the easing to find when (ms after t0) the wavefront reaches `dist`.
+function arrivalMs(dist, maxD) {
+  const frac = dist / (maxD * 1.05);
+  if (frac >= 1) return ANIM_MS;
+  return Math.min(ANIM_MS, -Math.log(1 - Math.min(0.9999, frac)) / EASE_K * ANIM_MS);
+}
+
+// Draw a brief ice-blue radial glow on each hex as the wavefront passes through.
+function drawHexGlows(anim, ts) {
+  for (const { dist, hex } of anim.reached) {
+    const elapsed = ts - (anim.t0 + arrivalMs(dist, anim.maxD));
+    if (elapsed < 0 || elapsed >= HEX_GLOW_MS) continue;
+
+    const t     = elapsed / HEX_GLOW_MS;
+    const alpha = (1 - t) * 0.55;
+    const { verts: vx, cx, cy } = hex;
+
+    // Filled hex glow
+    const gr = dc.createRadialGradient(cx, cy, 0, cx, cy, R * 0.92);
+    gr.addColorStop(0,   `rgba(210,242,255,${alpha})`);
+    gr.addColorStop(0.55,`rgba(175,222,250,${alpha * 0.55})`);
+    gr.addColorStop(1,    'rgba(155,210,248,0)');
+    dc.beginPath();
+    dc.moveTo(vx[0].x, vx[0].y);
+    for (let i = 1; i < 6; i++) dc.lineTo(vx[i].x, vx[i].y);
+    dc.closePath();
+    dc.fillStyle = gr;
+    dc.fill();
+
+    // Hex border pulse
+    dc.beginPath();
+    dc.moveTo(vx[0].x, vx[0].y);
+    for (let i = 1; i < 6; i++) dc.lineTo(vx[i].x, vx[i].y);
+    dc.closePath();
+    dc.strokeStyle = `rgba(175,228,255,${alpha * 0.9})`;
+    dc.lineWidth   = 1.5;
+    dc.stroke();
+  }
 }
 
 // ─── Drawing ──────────────────────────────────────────────────────────────────
@@ -409,6 +456,7 @@ function loop(ts) {
     const eased  = 1 - Math.exp(-EASE_K * t);
     const frontD = eased * anim.maxD * 1.05;  // slight overshoot → clean finish
 
+    drawHexGlows(anim, ts);
     drawTree(anim.root, frontD, true);
     drawFlash(anim.ox, anim.oy, ts - anim.t0);
 
